@@ -68,27 +68,18 @@ save("examples/vision/initial_state.png", canvas)
 
 # Check that A* heuristic search correctly solves the problem
 random_planner = RandomPlanner(save_search=true)
-# astar_planner = AStarPlanner(GoalManhattan(), save_search=true)
-sol = random_planner(domain, state, spec)
+astar_planner = AStarPlanner(GoalManhattan(), save_search=true)
 
-# Visualize resulting plan
-plan = collect(sol)
+sol1 = random_planner(domain, state, pddl"(visible carrot1)")
+sol2 = astar_planner(domain, sol1.trajectory[end], pddl"(has carrot1)")
+plan = [collect(sol1); collect(sol2);]
 
+# sol = random_planner(domain, state, spec)
+# plan = collect(sol)
 
-# Print visibility status after each step in the plan
-for (i, step) in enumerate(plan)
-    println("Step $i: $step")
-    local current_state = sol.trajectory[i]
-    println("Current state: $current_state")
-end
+obs_traj = PDDL.simulate(domain, state, plan)
 
-canvas = renderer(canvas, domain, state, plan)
-@assert satisfy(domain, sol.trajectory[end], problem.goal) == true
-
-# Visualise search tree
-canvas = renderer(canvas, domain, state, sol, show_trajectory=false)
-
-# Animate plan
+# Visualize trajectory
 anim = anim_plan(renderer, domain, state, plan;
                  format="gif", framerate=5, trail_length=10)
 

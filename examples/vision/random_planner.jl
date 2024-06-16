@@ -40,6 +40,10 @@ function (planner::RandomPlanner)(domain::Domain, state::State, spec::Specificat
     solve(planner, domain, state, spec)
 end
 
+function (planner::RandomPlanner)(domain::Domain, state::State, goals)
+    solve(planner, domain, state, Specification(goals))
+end
+
 function Base.copy(p::RandomPlanner)
     return RandomPlanner(p.max_nodes, p.max_time,
                          p.save_search, p.save_search_order,
