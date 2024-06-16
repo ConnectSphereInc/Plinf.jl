@@ -79,6 +79,8 @@ function search!(sol::PathSearchSolution, planner::RandomPlanner,
     start_time = time()
     sol.expanded = 0
     queue, search_tree = sol.search_frontier, sol.search_tree
+    visited = Set{UInt}()
+    push!(visited, queue[1])
 
     while length(queue) > 0
         # Randomly select a state from the queue
@@ -95,7 +97,7 @@ function search!(sol::PathSearchSolution, planner::RandomPlanner,
 
         if sol.status == :in_progress # Expand current node
             popfirst!(queue)
-            expand!(planner, node, search_tree, queue, domain, spec)
+            expand!(planner, node, search_tree, queue, domain, spec, visited)
             sol.expanded += 1
             if planner.save_search && planner.save_search_order
                 push!(sol.search_order, node_id)
@@ -119,18 +121,24 @@ end
 function expand!(
     planner::RandomPlanner, node::PathNode{S},
     search_tree::Dict{UInt,PathNode{S}}, queue::Vector{UInt},
-    domain::Domain, spec::Specification
+    domain::Domain, spec::Specification, visited::Set{UInt}
 ) where {S <: State}
     state = node.state
 
-    available_actions = [act for act in available(domain, state) if !haskey(search_tree, hash(transition(domain, state, act, check=false)))]
-    println("available_actions: ", available_actions)
+    available_actions = [act for act in available(domain, state)]
     if isempty(available_actions)
         return  # Return if there is no direction to proceed
     end
 
+    # Remove visited states from available actions as much as possible
+    unvisited_and_available_actions = [act for act in available_actions if !(hash(transition(domain, state, act, check=false)) in visited)]
+    if isempty(unvisited_and_available_actions)
+        unvisited_and_available_actions = available_actions
+    end
+    println("unvisited_and_available_actions: ", unvisited_and_available_actions)
+
     # Randomly select actions and transitions
-    chosen_action = available_actions[rand(1:length(available_actions))]
+    chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     next_state = transition(domain, state, chosen_action, check=false)
     next_id = hash(next_state)
 
@@ -138,6 +146,7 @@ function expand!(
     if !haskey(search_tree, next_id)
         path_cost = node.path_cost + 1
         search_tree[next_id] = PathNode(next_id, next_state, path_cost, LinkedNodeRef(node.id, chosen_action))
-        push!(queue, next_id)
+        push!(visited, next_id)
     end
+    push!(queue, next_id)
 end
