@@ -29,7 +29,7 @@
                                         (= (get-index walls (- ypos 2) xpos) false))
                                 (and (= (xloc ?i) xpos) 
                                         (= (yloc ?i) (- ypos 4))
-                                        (or (= (get-index walls (- ypos 2) xpos) false)
+                                        (and (= (get-index walls (- ypos 2) xpos) false)
                                             (= (get-index walls (- ypos 3) xpos) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check right
@@ -40,7 +40,7 @@
                                         (= (get-index walls (- ypos 1) (+ xpos 1)) false))
                                 (and (= (xloc ?i) (+ xpos 3)) 
                                         (= (yloc ?i) (- ypos 1))
-                                        (or (= (get-index walls (- ypos 1) (+ xpos 1)) false)
+                                        (and (= (get-index walls (- ypos 1) (+ xpos 1)) false)
                                             (= (get-index walls (- ypos 1) (+ xpos 2)) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check left
@@ -51,7 +51,7 @@
                                         (= (get-index walls (- ypos 1) (- xpos 1)) false))
                                 (and (= (xloc ?i) (- xpos 3)) 
                                         (= (yloc ?i) (- ypos 1))
-                                        (or (= (get-index walls (- ypos 1) (- xpos 1)) false)
+                                        (and (= (get-index walls (- ypos 1) (- xpos 1)) false)
                                             (= (get-index walls (- ypos 1) (- xpos 2)) false))))
                             (visible ?i)))))
     (:action down
@@ -67,7 +67,7 @@
                                         (= (get-index walls (+ ypos 2) xpos) false))
                                 (and (= (xloc ?i) xpos) 
                                         (= (yloc ?i) (+ ypos 4))
-                                        (or (= (get-index walls (+ ypos 2) xpos) false)
+                                        (and (= (get-index walls (+ ypos 2) xpos) false)
                                             (= (get-index walls (+ ypos 3) xpos) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check right
@@ -78,7 +78,7 @@
                                         (= (get-index walls (+ ypos 1) (+ xpos 1)) false))
                                 (and (= (xloc ?i) (+ xpos 3)) 
                                         (= (yloc ?i) (+ ypos 1))
-                                        (or (= (get-index walls (+ ypos 1) (+ xpos 1)) false)
+                                        (and (= (get-index walls (+ ypos 1) (+ xpos 1)) false)
                                             (= (get-index walls (+ ypos 1) (+ xpos 2)) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check left
@@ -89,7 +89,7 @@
                                         (= (get-index walls (+ ypos 1) (- xpos 1)) false))
                                 (and (= (xloc ?i) (- xpos 3)) 
                                         (= (yloc ?i) ypos)
-                                        (or (= (get-index walls (+ ypos 1) (- xpos 1)) false)
+                                        (and (= (get-index walls (+ ypos 1) (- xpos 1)) false)
                                             (= (get-index walls (+ ypos 1) (- xpos 2)) false))))
                             (visible ?i)))))
 
@@ -105,8 +105,9 @@
                                         (= (get-index walls (+ ypos 1) (- xpos 1)) false))
                                 (and (= (xloc ?i) (- xpos 1)) 
                                         (= (yloc ?i) (+ ypos 3))
-                                        (or (= (get-index walls (+ ypos 1) (- xpos 1)) false)
-                                            (= (get-index walls (+ ypos 2) (- xpos 1)) false))))
+                                        (and (= (get-index walls (+ ypos 1) (- xpos 1)) false)
+                                            (= (get-index walls (+ ypos 2) (- xpos 1)) false)))
+                                            )
                             (visible ?i)))
                     (forall (?i - item) ;check up
                         (when (or (and (= (xloc ?i) (- xpos 1)) 
@@ -116,7 +117,7 @@
                                         (= (get-index walls (- ypos 1) (- xpos 1)) false))
                                 (and (= (xloc ?i) xpos) 
                                         (= (yloc ?i) (- ypos 3))
-                                        (or (= (get-index walls (- ypos 1) (- xpos 1)) false)
+                                        (and (= (get-index walls (- ypos 1) (- xpos 1)) false)
                                             (= (get-index walls (- ypos 2) (- xpos 1)) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check left
@@ -127,7 +128,7 @@
                                         (= (get-index walls ypos (- xpos 2)) false))
                                 (and (= (xloc ?i) (- xpos 4)) 
                                         (= (yloc ?i) ypos)
-                                        (or (= (get-index walls ypos (- xpos 2)) false)
+                                        (and (= (get-index walls ypos (- xpos 2)) false)
                                             (= (get-index walls ypos (- xpos 3)) false))))
                             (visible ?i)))))
 
@@ -143,7 +144,7 @@
                                         (= (get-index walls (+ ypos 1) (+ xpos 1)) false))
                                 (and (= (xloc ?i) (+ xpos 1)) 
                                         (= (yloc ?i) (+ ypos 3))
-                                        (or (= (get-index walls (+ ypos 1) (+ xpos 1)) false)
+                                        (and (= (get-index walls (+ ypos 1) (+ xpos 1)) false)
                                             (= (get-index walls (+ ypos 2) (+ xpos 1)) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check up
@@ -154,7 +155,7 @@
                                         (= (get-index walls (- ypos 1) (+ xpos 1)) false))
                                 (and (= (xloc ?i) (+ xpos 1)) 
                                         (= (yloc ?i) (- ypos 3))
-                                        (or (= (get-index walls (- ypos 1) (+ xpos 1)) false)
+                                        (and (= (get-index walls (- ypos 1) (+ xpos 1)) false)
                                             (= (get-index walls (- ypos 2) (+ xpos 1)) false))))
                             (visible ?i)))
                     (forall (?i - item) ; check right
@@ -165,7 +166,7 @@
                                         (= (get-index walls ypos (+ xpos 2)) false))
                                 (and (= (xloc ?i) (+ xpos 4)) 
                                         (= (yloc ?i) ypos)
-                                        (or (= (get-index walls ypos (+ xpos 2)) false)
+                                        (and (= (get-index walls ypos (+ xpos 2)) false)
                                             (= (get-index walls ypos (+ xpos 3)) false))))
                             (visible ?i)))
         ))
