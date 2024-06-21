@@ -74,13 +74,10 @@ sol1 = random_planner(domain, state, pddl"(visible carrot1)")
 sol2 = astar_planner(domain, sol1.trajectory[end], pddl"(has carrot1)")
 plan = [collect(sol1); collect(sol2);]
 
-# sol = random_planner(domain, state, spec)
-# plan = collect(sol)
-
 obs_traj = PDDL.simulate(domain, state, plan)
 
 # Visualize trajectory
 anim = anim_plan(renderer, domain, state, plan;
-                 format="gif", framerate=5, trail_length=10)
+                 format="gif", framerate=2, trail_length=10)
 
-save("examples/vision/plan.mp4", anim)
+save("examples/vision/plan_.mp4", anim)
