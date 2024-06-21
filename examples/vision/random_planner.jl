@@ -63,7 +63,7 @@ function solve(planner::RandomPlanner,
     search_order = UInt[]
     sol = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
                              0, search_tree, queue, search_order)
-    sol = search!(sol, planner, domain, spec)
+    sol = search!(sol, planner, domain, spec, state)
 
     if save_search
         return sol
@@ -75,12 +75,13 @@ function solve(planner::RandomPlanner,
 end
 
 function search!(sol::PathSearchSolution, planner::RandomPlanner,
-                 domain::Domain, spec::Specification)
+                 domain::Domain, spec::Specification, state::State)
     start_time = time()
     sol.expanded = 0
     queue, search_tree = sol.search_frontier, sol.search_tree
-    visited = Set{UInt}()
-    push!(visited, queue[1])
+    visited = Set{Tuple{Int64,Int64}}()
+    initial_agent_pos = get_agent_pos(state)
+    push!(visited, initial_agent_pos)
 
     while length(queue) > 0
         # Randomly select a state from the queue
@@ -121,7 +122,7 @@ end
 function expand!(
     planner::RandomPlanner, node::PathNode{S},
     search_tree::Dict{UInt,PathNode{S}}, queue::Vector{UInt},
-    domain::Domain, spec::Specification, visited::Set{UInt}
+    domain::Domain, spec::Specification, visited::Set{Tuple{Int64,Int64}}
 ) where {S <: State}
     state = node.state
 
@@ -131,7 +132,15 @@ function expand!(
     end
 
     # Remove visited states from available actions as much as possible
-    unvisited_and_available_actions = [act for act in available_actions if !(hash(transition(domain, state, act, check=false)) in visited)]
+    unvisited_and_available_actions = []
+    for act in available_actions
+        next_state = transition(domain, state, act, check=false)
+        next_agent_pos = get_agent_pos(next_state)
+        if !(next_agent_pos in visited)
+            push!(unvisited_and_available_actions, act)
+        end
+    end
+
     if isempty(unvisited_and_available_actions)
         unvisited_and_available_actions = available_actions
     end
@@ -141,12 +150,19 @@ function expand!(
     chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     next_state = transition(domain, state, chosen_action, check=false)
     next_id = hash(next_state)
+    next_agent_pos = get_agent_pos(next_state)
 
     # Add new state to search tree and queue
     if !haskey(search_tree, next_id)
         path_cost = node.path_cost + 1
         search_tree[next_id] = PathNode(next_id, next_state, path_cost, LinkedNodeRef(node.id, chosen_action))
-        push!(visited, next_id)
+        push!(visited, next_agent_pos)
     end
     push!(queue, next_id)
+end
+
+# Get agent position from CompiledState
+# return: (xpos, ypos)
+function get_agent_pos(state::State)
+    return (PDDL.GenericState(state).values[:xpos], PDDL.GenericState(state).values[:ypos])
 end
