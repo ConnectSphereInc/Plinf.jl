@@ -144,7 +144,6 @@ function expand!(
     if isempty(unvisited_and_available_actions)
         unvisited_and_available_actions = available_actions
     end
-    println("unvisited_and_available_actions: ", unvisited_and_available_actions)
 
     # Randomly select actions and transitions
     chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
