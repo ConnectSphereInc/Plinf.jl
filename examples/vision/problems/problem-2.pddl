@@ -24,5 +24,5 @@
         (= (xpos) 1)
         (= (ypos) 1)
     )
-    (:goal (and (has carrot1) (has onion1)))
+    (:goal (has carrot1))
 )

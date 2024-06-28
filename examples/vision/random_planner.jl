@@ -19,51 +19,80 @@ Random search planner. Nodes are expanded in a random order.
 Returns a [`PathSearchSolution`](@ref) or [`NullSolution`](@ref).
 """
 # @kwdef mutable struct RandomPlanner <: Planner
-mutable struct RandomPlanner
+mutable struct RandomPlanner <: Planner
     max_nodes::Int
     max_time::Float64
     save_search::Bool
     save_search_order::Bool
     verbose::Bool
     callback::Union{Nothing, Function}
+    alternative_planner::Union{Nothing, Planner}
 
     RandomPlanner(;max_nodes::Int=typemax(Int), max_time::Float64=Inf,
-                  save_search::Bool=false, save_search_order::Bool=save_search,
+                  save_search::Bool=false, alternative_planner=AStarPlanner(GoalManhattan(), save_search=true), save_search_order::Bool=save_search,
                   verbose::Bool=false, callback::Union{Nothing, Function}=verbose ? LoggerCallback() : nothing) =
-        new(max_nodes, max_time, save_search, save_search_order, verbose, callback)
+        new(max_nodes, max_time, save_search, save_search_order, verbose, callback, alternative_planner)
 end
 
 @auto_hash RandomPlanner
 @auto_equals RandomPlanner
 
-function (planner::RandomPlanner)(domain::Domain, state::State, spec::Specification)
-    solve(planner, domain, state, spec)
+function (planner::RandomPlanner)(domain::Domain, state::State, goal)
+    solve(planner, domain, state, Specification(goal))
 end
 
-function (planner::RandomPlanner)(domain::Domain, state::State, goals)
-    solve(planner, domain, state, Specification(goals))
+function (planner::RandomPlanner)(domain::Domain, state::State, goal::MinStepsGoal)
+    solve(planner, domain, state, Specification(goal.terms))
 end
 
 function Base.copy(p::RandomPlanner)
-    return RandomPlanner(p.max_nodes, p.max_time,
-                         p.save_search, p.save_search_order,
-                         p.verbose, p.callback)
+    return RandomPlanner(
+        max_nodes = p.max_nodes,
+        max_time = p.max_time,
+        save_search = p.save_search,
+        save_search_order = p.save_search_order,
+        verbose = p.verbose,
+        callback = p.callback,
+        alternative_planner = p.alternative_planner
+    )
 end
 
-function solve(planner::RandomPlanner,
-               domain::Domain, state::State, spec::Specification)
+function solve(planner::RandomPlanner, domain::Domain, state::State, spec::Specification)
 
+    # Extract the item from the first 'has' goal in the specification
+    item = nothing
+    for goal in spec.terms
+        if goal isa Term && goal.name == :has && length(goal.args) == 1
+            item = goal.args[1]
+            break
+        end
+    end
+    if item === nothing
+        error("No 'has' goal found in specification")
+    end
+
+    # Create the subgoal
+    subgoal = Compound(:visible, Term[item])
+    spec_intermediate = Specification(subgoal)
+    spec_final = spec
+    
     @unpack save_search = planner
-    spec = simplify_goal(spec, domain, state)
+    spec_intermediate = simplify_goal(spec_intermediate, domain, state)
     node_id = hash(state)
     node = PathNode(node_id, state, 0.0, LinkedNodeRef(node_id))
 
     search_tree = Dict(node_id => node)
     queue = [node_id]
     search_order = UInt[]
-    sol = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
+    sol1 = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
                              0, search_tree, queue, search_order)
-    sol = search!(sol, planner, domain, spec, state)
+    sol1 = search!(sol1, planner, domain, spec_intermediate, state)
+
+    if sol1.status != :failure && !isnothing(planner.alternative_planner)
+        sol2 = planner.alternative_planner(domain, sol1.trajectory[end], spec_final)
+    end
+
+    sol = stack_solutions(sol1, sol2)
 
     if save_search
         return sol
@@ -164,4 +193,58 @@ end
 # return: (xpos, ypos)
 function get_agent_pos(state::State)
     return (PDDL.GenericState(state).values[:xpos], PDDL.GenericState(state).values[:ypos])
+end
+
+
+function stack_solutions(sol1::PathSearchSolution, sol2::PathSearchSolution)
+    # Combine plans
+    combined_plan = vcat(sol1.plan, sol2.plan)
+    
+    # Combine trajectories if they exist
+    combined_trajectory = if sol1.trajectory !== nothing && sol2.trajectory !== nothing
+        vcat(sol1.trajectory, sol2.trajectory[2:end])  # Avoid duplicating the connecting state
+    else
+        nothing
+    end
+    
+    # Sum up expanded nodes
+    total_expanded = sol1.expanded + sol2.expanded
+    
+    # Merge search trees if they exist
+    combined_search_tree = if sol1.search_tree !== nothing && sol2.search_tree !== nothing
+        merge(sol1.search_tree, sol2.search_tree)
+    else
+        nothing
+    end
+    
+    # Combine search frontiers
+    combined_frontier = if typeof(sol1.search_frontier) == typeof(sol2.search_frontier)
+        vcat(sol1.search_frontier, sol2.search_frontier)
+    else
+        # If types are different, convert to Vector{Any}
+        vcat(collect(sol1.search_frontier), collect(sol2.search_frontier))
+    end
+    
+    # Combine search orders
+    combined_search_order = vcat(sol1.search_order, sol2.search_order)
+    
+    # Determine the overall status
+    combined_status = if sol1.status == :success && sol2.status == :success
+        :success
+    elseif sol1.status == :failure || sol2.status == :failure
+        :failure
+    else
+        :partial
+    end
+    
+    # Create and return the new combined solution
+    return PathSearchSolution{eltype(sol1.trajectory), typeof(combined_frontier)}(
+        combined_status,
+        combined_plan,
+        combined_trajectory,
+        total_expanded,
+        combined_search_tree,
+        combined_frontier,
+        combined_search_order
+    )
 end
