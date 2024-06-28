@@ -190,11 +190,9 @@ function expand!(
 end
 
 # Get agent position from CompiledState
-# return: (xpos, ypos)
 function get_agent_pos(state::State)
     return (PDDL.GenericState(state).values[:xpos], PDDL.GenericState(state).values[:ypos])
 end
-
 
 function stack_solutions(sol1::PathSearchSolution, sol2::PathSearchSolution)
     # Combine plans

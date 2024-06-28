@@ -19,7 +19,6 @@ problem = load_problem(joinpath(@__DIR__, "problems", "problem-2.pddl"))
 # Initialize state and construct goal specification
 println("Initializing state")
 state = initstate(domain, problem)
-println("Initial state: $state")
 println("Constructing goal specification")
 spec = Specification(problem)
 
@@ -29,12 +28,11 @@ domain, state = PDDL.compiled(domain, state)
 
 #--- Define Renderer ---#
 println("Defining renderer")
-# Construct gridworld renderer
 
+# Construct gridworld renderer
 renderer = PDDLViz.GridworldRenderer(
     resolution = (600, 700),
     agent_renderer = (d, s) -> begin
-        println("Rendering agent")
         HumanGraphic(color=:black)
     end,
     obj_renderers = Dict(
@@ -134,7 +132,7 @@ save("examples/vision/plan_.mp4", anim)
 callback = DKGCombinedCallback(
     renderer, domain;
     goal_addr = goal_addr,
-    goal_names = ["red", "yellow"],
+    goal_names = ["Carrot", "Onion"],
     goal_colors = goal_colors,
     obs_trajectory = obs_traj,
     print_goal_probs = true,

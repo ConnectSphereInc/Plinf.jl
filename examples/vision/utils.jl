@@ -97,7 +97,7 @@ logs data and visualizes inference for the doors, keys and gems domain.
 function DKGCombinedCallback(
     renderer::GridworldRenderer, domain::Domain;
     goal_addr = :init => :agent => :goal => :goal,
-    goal_names = ["(has gem1)", "(has gem2)", "(has gem3)"],
+    goal_names = [ "(has carrot1)", "(has onion1)"],
     goal_colors = PDDLViz.colorschemes[:vibrant][1:length(goal_names)],
     obs_trajectory = nothing,
     print_goal_probs::Bool = true,
