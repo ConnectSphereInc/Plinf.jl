@@ -97,7 +97,7 @@ logs data and visualizes inference for the doors, keys and gems domain.
 function DKGCombinedCallback(
     renderer::GridworldRenderer, domain::Domain;
     goal_addr = :init => :agent => :goal => :goal,
-    goal_names = ["(has gem1)", "(has gem2)", "(has gem3)"],
+    goal_names = [ "(has carrot1)", "(has onion1)"],
     goal_colors = PDDLViz.colorschemes[:vibrant][1:length(goal_names)],
     obs_trajectory = nothing,
     print_goal_probs::Bool = true,
@@ -297,7 +297,7 @@ end
 "Adds a subplot to a storyboard with a line plot of goal probabilities."
 function storyboard_goal_lines!(
     storyboard::Figure, goal_probs, ts=Int[];
-    goal_names = ["(has gem1)", "(has gem2)", "(has gem3)"],
+    goal_names = ["(has gem1)", "(has gem3)"],
     goal_colors = PDDLViz.colorschemes[:vibrant][1:length(goal_names)],
     show_legend = false
 )
@@ -323,6 +323,6 @@ function storyboard_goal_lines!(
     end
     # Resize figure to fit new plot
     rowsize!(storyboard.layout, n_rows+1, Auto(0.25))
-    resize!(storyboard, (width, height * 1.3))
+    # resize!(storyboard, (width, height * 1.3))
     return storyboard
 end
