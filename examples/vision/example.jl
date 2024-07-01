@@ -98,7 +98,7 @@ agent_config = AgentConfig(
 obs_params = ObsNoiseParams(
     (pddl"(xpos)", normal, 1.0),
     (pddl"(ypos)", normal, 1.0),
-    (pddl"(forall (?i - item) (visible ?i))", 0.0),
+    (pddl"(forall (?i - item) (visible ?i))", 0.01),
     (pddl"(forall (?i - item) (has ?i))", 0.05),
     (pddl"(forall (?i - item) (offgrid ?i))", 0.05)
 )
