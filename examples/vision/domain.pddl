@@ -88,7 +88,7 @@
                                         (= (yloc ?i) (+ ypos 1))
                                         (= (get-index walls (+ ypos 1) (- xpos 1)) false))
                                 (and (= (xloc ?i) (- xpos 3)) 
-                                        (= (yloc ?i) ypos)
+                                        (= (yloc ?i) (+ ypos 1))
                                         (and (= (get-index walls (+ ypos 1) (- xpos 1)) false)
                                             (= (get-index walls (+ ypos 1) (- xpos 2)) false))))
                             (visible ?i)))))

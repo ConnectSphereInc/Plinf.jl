@@ -4,7 +4,7 @@
         carrot1 - carrot 
         onion1 - onion)
     (:init
-        (= (xloc carrot1) 8)
+        (= (xloc carrot1) 7)
         (= (yloc carrot1) 8)
         (= (xloc onion1) 5)
         (= (yloc onion1) 5)
