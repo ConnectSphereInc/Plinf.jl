@@ -62,15 +62,15 @@ println("Saving initial state to file")
 save("examples/vision/initial_state.png", canvas)
 
 #--- Model Configuration ---#
-
-planner = RandomPlanner(save_search=true)
+# planner = AStarPlanner(GoalManhattan(), save_search=true)
+planner = TwoStagePlanner(save_search=true)
 
 # Specify possible goals
 goals = @pddl("(has carrot1)", "(has onion1)")
 goal_idxs = collect(1:length(goals))
 goal_names = [write_pddl(g) for g in goals]
-gem_colors = PDDLViz.colorschemes[:vibrant]
-goal_colors = gem_colors[goal_idxs]
+colors= PDDLViz.colorschemes[:vibrant]
+goal_colors = colors[goal_idxs]
 
 # Define uniform prior over possible goals
 @gen function goal_prior()
@@ -82,44 +82,26 @@ end
 goal_addr = :init => :agent => :goal => :goal
 goal_strata = choiceproduct((goal_addr, 1:length(goals)))
 
-# Configure agent model with domain, planner, and goal prior
-agent_config = AgentConfig(
-    domain, 
-    planner;
-    goal_config = StaticGoalConfig(goal_prior),
-    replan_args = (
-        prob_replan = 0.1,
-        budget_dist = shifted_neg_binom,
-        budget_dist_args = (2, 0.05, 1)
-    ),
-    act_epsilon = 0.05
-)
-# Define observation noise model
 obs_params = ObsNoiseParams(
     (pddl"(xpos)", normal, 1.0),
     (pddl"(ypos)", normal, 1.0),
     (pddl"(forall (?i - item) (visible ?i))", 0.01),
-    (pddl"(forall (?i - item) (has ?i))", 0.05),
-    (pddl"(forall (?i - item) (offgrid ?i))", 0.05)
+    (pddl"(forall (?i - item) (has ?i))", 0.01),
+    (pddl"(forall (?i - item) (offgrid ?i))", 0.01)
 )
 obs_params = ground_obs_params(obs_params, domain, state)
 obs_terms = collect(keys(obs_params))
-
-# Configure world model with planner, goal prior, initial state, and obs params
-world_config = WorldConfig(
-    agent_config = agent_config,
-    env_config = PDDLEnvConfig(domain, state),
-    obs_config = MarkovObsConfig(domain, obs_params)
-)
+println("Obs terms")
+println(obs_terms)
+agent_config = AgentConfig(domain,  planner; goal_config = StaticGoalConfig(goal_prior))
 
 #--- Generate Trajectory ---#
 
 # Construct a trajectory with backtracking to perform inference on
-planner = RandomPlanner(save_search=true, alternative_planner=AStarPlanner(GoalManhattan(), save_search=true))
-sol = planner(domain, state, pddl"(has carrot1)")
+sol = AStarPlanner(GoalManhattan(), save_search=true)(domain, state, pddl"(has carrot1)")
 plan = [collect(sol);]
-obs_traj = PDDL.simulate(domain, state, plan)
-t_obs_iter = state_choicemap_pairs(obs_traj, obs_terms; batch_size=1)
+obs_traj::Vector{State} = PDDL.simulate(domain, state, plan)
+num_steps = length(obs_traj)
 
 anim = anim_plan(renderer, domain, state, plan;
                  format="gif", framerate=2, trail_length=10)
@@ -128,34 +110,55 @@ save("examples/vision/plan_.mp4", anim)
 
 #--- Online Goal Inference ---#
 
-# Construct callback for logging data and visualizing inference
-callback = DKGCombinedCallback(
-    renderer, domain;
-    goal_addr = goal_addr,
-    goal_names = ["Carrot", "Onion"],
-    goal_colors = goal_colors,
-    obs_trajectory = obs_traj,
-    print_goal_probs = true,
-    plot_goal_bars = true,
-    plot_goal_lines = true,
-    render = true,
-    inference_overlay = true,
-    record = true
-)
-
-# Configure SIPS particle filter
-sips = SIPS(world_config, resample_cond=:ess, rejuv_cond=:periodic,
-            rejuv_kernel=ReplanKernel(2), period=2)
-
 # Run particle filter to perform online goal inference
-n_samples = 120
-pf_state = sips(
-    n_samples, t_obs_iter;
-    init_args=(init_strata=goal_strata,),
-    callback=callback
-);
 
-# Extract animation
-anim = callback.record.animation
+# Number of particles to sample
+n_samples = 10000
 
-save("examples/vision/infer_.mp4", anim)
+states_split::Vector{Vector{State}} = []
+t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
+for t in eachindex(obs_traj)
+    if t+1 < num_steps
+        push!(states_split, [obs_traj[t],obs_traj[t+1]])
+        t_to = state_choicemap_pairs([obs_traj[t],obs_traj[t+1]], obs_terms; batch_size=1)
+        push!(t_obs_split, t_to)
+    end
+end
+
+# Do new particle filtering over each step
+for t in eachindex(obs_traj)
+    if t+1 < num_steps
+        local t_obs_iter = t_obs_split[t]
+        # Construct callback for logging data and visualizing inference
+        local callback = DKGCombinedCallback(
+            renderer, domain;
+            goal_addr = goal_addr,
+            goal_names = ["Carrot", "Onion"],
+            goal_colors = goal_colors,
+            obs_trajectory = [obs_traj[t],obs_traj[t+1]],
+            print_goal_probs = false,
+            plot_goal_bars = true,
+            plot_goal_lines = false,
+            render = true,
+            inference_overlay = true,
+            record = true
+        )
+        world_config = WorldConfig(
+            agent_config = agent_config,
+            env_config = PDDLEnvConfig(domain, obs_traj[t]),
+            obs_config = MarkovObsConfig(domain, obs_params)
+        )
+        sips = SIPS(world_config, resample_cond=:none, rejuv_cond=:none)
+
+        pf_state = sips(
+            n_samples, t_obs_iter;
+            init_args=(init_strata=goal_strata,),
+            callback=callback
+        );
+
+        local anim = callback.record.animation
+
+        save("examples/vision/infer_$(t).mp4", anim)
+    end
+
+end
