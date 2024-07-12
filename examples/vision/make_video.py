@@ -35,4 +35,4 @@ def combine_mp4_files(directory):
         print("No video files found to process.")
 
 # Example usage
-combine_mp4_files("/Users/ciaran/dev/Plinf.jl/examples/vision/")
+combine_mp4_files("examples/vision/output/")

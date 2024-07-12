@@ -57,12 +57,17 @@ renderer = PDDLViz.GridworldRenderer(
 println("Visualizing initial state")
 canvas = renderer(domain, state)
 
+# Make the output folder
+output_folder = "examples/vision/output"
+if !isdir(output_folder)
+    mkdir(output_folder)
+end
+
 # Save the canvas to a file
 println("Saving initial state to file")
-save("examples/vision/initial_state.png", canvas)
+save(output_folder*"/initial_state.png", canvas)
 
 #--- Model Configuration ---#
-# planner = AStarPlanner(GoalManhattan(), save_search=true)
 planner = TwoStagePlanner(save_search=true)
 
 # Specify possible goals
@@ -106,14 +111,14 @@ num_steps = length(obs_traj)
 anim = anim_plan(renderer, domain, state, plan;
                  format="gif", framerate=2, trail_length=10)
 
-save("examples/vision/plan_.mp4", anim)
+save(output_folder*"/plan_.mp4", anim)
 
 #--- Online Goal Inference ---#
 
 # Run particle filter to perform online goal inference
 
 # Number of particles to sample
-n_samples = 10000
+n_samples = 100
 
 states_split::Vector{Vector{State}} = []
 t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
@@ -158,7 +163,7 @@ for t in eachindex(obs_traj)
 
         local anim = callback.record.animation
 
-        save("examples/vision/infer_$(t).mp4", anim)
+        save(output_folder*"/infer_$(t).mp4", anim)
     end
 
 end

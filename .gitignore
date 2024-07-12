@@ -28,4 +28,6 @@ Manifest.toml
 
 # Video files
 *.mp4
-examples/vision/*.png
+
+# Output folder
+**/output/
