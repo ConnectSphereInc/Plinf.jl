@@ -2,7 +2,7 @@
 
 export ObsConfig, PerfectObsConfig, MarkovObsConfig
 export ObsNoiseParams, ground_obs_params
-export observe_state
+export observe_state, perfect_observe_state
 
 """
     ObsConfig
@@ -31,23 +31,32 @@ end
 
 Constructs an `ObsConfig` with no observation noise (perfect observability).
 """
-function PerfectObsConfig()
-    return ObsConfig(perfect_obs_init, (), perfect_obs_step, ())
+function PerfectObsConfig(domain::Domain, obs_params)
+    args = (domain, obs_params)
+    return ObsConfig(perfect_obs_init, args, perfect_obs_step, args)
 end
 
 """
-    perfect_obs_init(env_state)
+    perfect_obs_init(env_state, obs_terms)
 
 Observation initializer which directly returns the current environment state.
 """
-@gen perfect_obs_init(env_state) = env_state
+@gen function perfect_obs_init(env_state, domain, obs_params)
+    env_state::State = convert(State, env_state) # Convert to PDDL state to be safe
+    obs_state = {*} ~ perfect_observe_state(env_state, obs_params)
+    return obs_state
+end
 
 """
     perfect_obs_step(t, obs_state, env_state)
 
 Observation step which directly returns the current environment state.
 """
-@gen perfect_obs_step(t, obs_state, env_state) = env_state
+@gen function perfect_obs_step(t, obs_state, env_state, domain, obs_params)
+    env_state::State = convert(State, env_state) # Convert to PDDL state to be safe
+    obs_state = {*} ~ perfect_observe_state(env_state, obs_params)
+    return obs_state
+end
 
 # Markov observation model #
 
@@ -249,5 +258,45 @@ Observation noise model for PDDL states.
             end
         end
     end
+    return obs_state
+end
+
+"""
+    perfect_observe_state(state::State, obs_terms::Vector{Term})
+
+Perfect observation model for PDDL states. It returns an exact copy of the state
+for the specified observation terms.
+"""
+@gen function perfect_observe_state(state::State, obs_terms::Vector{Term})
+    obs_state = copy(state)
+
+    for term in obs_terms
+        if PDDL.is_ground(term)
+            true_value = state[term]
+            true_values = [true_value]
+            @dist choose_term() = true_values[categorical([1.0])];
+            {term} ~ choose_term()
+        elseif term.name == :forall
+            cond, body = term.args
+            subst = satisfiers(state.domain, state, cond)
+            for s in subst
+                grounded_term = PDDL.substitute(body, s)
+                true_value = state[grounded_term]
+                true_values = [true_value]
+                @dist choose_term() = true_values[categorical([1.0])];
+                {grounded_term} ~ choose_term()
+            end
+        else
+            subst = satisfiers(state.domain, state, term)
+            for s in subst
+                grounded_term = PDDL.substitute(term, s)
+                true_value = state[grounded_term]
+                true_values = [true_value]
+                @dist choose_term() = true_values[categorical([1.0])];
+                {grounded_term} ~ choose_term()
+            end
+        end
+    end
+
     return obs_state
 end

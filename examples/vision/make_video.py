@@ -13,15 +13,16 @@ def combine_mp4_files(directory):
     # Create a list to store VideoFileClip objects
     clips = []
     
-    for file in files:
+    for t, file in enumerate(files):
         file_path = os.path.join(directory, file)
         clip = VideoFileClip(file_path)
         # Calculate the midpoint of the video duration
-        midpoint = clip.duration / 2
+        if t != 0:
+            midpoint = clip.duration / 2
         # Trim the clip to only include the second half
-        trimmed_clip = clip.subclip(midpoint, clip.duration)
-        clips.append(trimmed_clip)
-        print(f"Processed {file}: original duration {clip.duration}, trimmed duration {trimmed_clip.duration}")
+            clip = clip.subclip(midpoint, clip.duration)
+        clips.append(clip)
+        print(f"Processed {file}.")
 
     if clips:
         # Concatenate all video clips

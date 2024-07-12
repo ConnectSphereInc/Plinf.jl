@@ -87,17 +87,15 @@ end
 goal_addr = :init => :agent => :goal => :goal
 goal_strata = choiceproduct((goal_addr, 1:length(goals)))
 
-obs_params = ObsNoiseParams(
-    (pddl"(xpos)", normal, 1.0),
-    (pddl"(ypos)", normal, 1.0),
-    (pddl"(forall (?i - item) (visible ?i))", 0.01),
-    (pddl"(forall (?i - item) (has ?i))", 0.01),
-    (pddl"(forall (?i - item) (offgrid ?i))", 0.01)
-)
-obs_params = ground_obs_params(obs_params, domain, state)
-obs_terms = collect(keys(obs_params))
-println("Obs terms")
-println(obs_terms)
+obs_terms = [
+    pddl"(xpos)",
+    pddl"(ypos)",
+    pddl"(forall (?i - item) (visible ?i))",
+    pddl"(forall (?i - item) (has ?i))",
+    pddl"(forall (?i - item) (offgrid ?i))"
+]
+obs_terms = vcat([ground_term(domain, state, term) for term in obs_terms]...)
+
 agent_config = AgentConfig(domain,  planner; goal_config = StaticGoalConfig(goal_prior))
 
 #--- Generate Trajectory ---#
@@ -108,17 +106,15 @@ plan = [collect(sol);]
 obs_traj::Vector{State} = PDDL.simulate(domain, state, plan)
 num_steps = length(obs_traj)
 
-anim = anim_plan(renderer, domain, state, plan;
-                 format="gif", framerate=2, trail_length=10)
-
+anim = anim_plan(renderer, domain, state, plan; format="gif", framerate=2, trail_length=10)
 save(output_folder*"/plan_.mp4", anim)
 
 #--- Online Goal Inference ---#
 
-# Run particle filter to perform online goal inference
+# PARTICLE FILTERING
 
 # Number of particles to sample
-n_samples = 1
+n_samples = 10
 
 states_split::Vector{Vector{State}} = []
 t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
@@ -151,7 +147,7 @@ for t in eachindex(obs_traj)
         world_config = WorldConfig(
             agent_config = agent_config,
             env_config = PDDLEnvConfig(domain, obs_traj[t]),
-            obs_config = MarkovObsConfig(domain, obs_params)
+            obs_config = PerfectObsConfig(domain::Domain, obs_terms)
         )
         sips = SIPS(world_config, resample_cond=:none, rejuv_cond=:none)
 

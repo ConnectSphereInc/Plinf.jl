@@ -1,4 +1,4 @@
-export labeled_cat, labeled_unif, flip, sym_binom, shifted_neg_binom
+export labeled_cat, labeled_unif, flip, sym_binom, shifted_neg_binom, ground_term
 
 "Labeled categorical distribution."
 @dist labeled_cat(labels, probs) = labels[categorical(probs)]
@@ -29,4 +29,13 @@ If `fn` is a `GenerativeFunction`, sample from `fn(args...)`. If `fn` is a
     else
         return fn
     end
+end
+
+function ground_term(domain, state, term::Term)
+    if term.name != :forall
+        return [term]
+    end
+    cond, body = term.args
+    subst = satisfiers(domain, state, cond)
+    return [PDDL.substitute(body, s) for s in subst]
 end
