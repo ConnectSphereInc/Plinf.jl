@@ -14,5 +14,6 @@ using DocStringExtensions
 include("utils.jl")
 include("modeling/modeling.jl")
 include("inference/inference.jl")
+include("inference/v_inference.jl")
 
 end # module

@@ -111,55 +111,65 @@ save(output_folder*"/plan_.mp4", anim)
 
 #--- Online Goal Inference ---#
 
-# PARTICLE FILTERING
+# whether to run the importance sampling or particle filtering implmentation
+use_importance_sampling = true
+n_samples = 1000
 
-# Number of particles to sample
-n_samples = 10
+if use_importance_sampling
+    initial_world_config = WorldConfig(
+        agent_config = agent_config,
+        env_config = PDDLEnvConfig(domain, obs_traj[1]),
+        obs_config = PerfectObsConfig(domain::Domain, obs_terms)
+    )
 
-states_split::Vector{Vector{State}} = []
-t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
-for t in eachindex(obs_traj)
-    if t+1 < num_steps
-        push!(states_split, [obs_traj[t],obs_traj[t+1]])
-        t_to = state_choicemap_pairs([obs_traj[t],obs_traj[t+1]], obs_terms; batch_size=1)
-        push!(t_obs_split, t_to)
-    end
-end
+    vips = VIPS(initial_world_config, domain)
 
-# Do new particle filtering over each step
-for t in eachindex(obs_traj)
-    if t+1 < num_steps
-        local t_obs_iter = t_obs_split[t]
-        # Construct callback for logging data and visualizing inference
-        local callback = DKGCombinedCallback(
-            renderer, domain;
-            goal_addr = goal_addr,
-            goal_names = ["Carrot", "Onion"],
-            goal_colors = goal_colors,
-            obs_trajectory = [obs_traj[t],obs_traj[t+1]],
-            print_goal_probs = false,
-            plot_goal_bars = true,
-            plot_goal_lines = false,
-            render = true,
-            inference_overlay = true,
-            record = true
-        )
-        world_config = WorldConfig(
-            agent_config = agent_config,
-            env_config = PDDLEnvConfig(domain, obs_traj[t]),
-            obs_config = PerfectObsConfig(domain::Domain, obs_terms)
-        )
-        sips = SIPS(world_config, resample_cond=:none, rejuv_cond=:none)
-
-        pf_state = sips(
-            n_samples, t_obs_iter;
-            init_args=(init_strata=goal_strata,),
-            callback=callback
-        );
-
-        local anim = callback.record.animation
-
-        save(output_folder*"/infer_$(t).mp4", anim)
+    _ = vips(n_samples, obs_traj, obs_terms; init_args=(init_strata=goal_strata,))
+else
+    states_split::Vector{Vector{State}} = []
+    t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
+    for t in eachindex(obs_traj)
+        if t+1 < num_steps
+            push!(states_split, [obs_traj[t],obs_traj[t+1]])
+            t_to = state_choicemap_pairs([obs_traj[t],obs_traj[t+1]], obs_terms; batch_size=1)
+            push!(t_obs_split, t_to)
+        end
     end
 
+    # Do new particle filtering over each step
+    for t in eachindex(obs_traj)
+        if t+1 < num_steps
+            local t_obs_iter = t_obs_split[t]
+            # Construct callback for logging data and visualizing inference
+            local callback = DKGCombinedCallback(
+                renderer, domain;
+                goal_addr = goal_addr,
+                goal_names = ["Carrot", "Onion"],
+                goal_colors = goal_colors,
+                obs_trajectory = [obs_traj[t],obs_traj[t+1]],
+                print_goal_probs = false,
+                plot_goal_bars = true,
+                plot_goal_lines = false,
+                render = true,
+                inference_overlay = true,
+                record = true
+            )
+            world_config = WorldConfig(
+                agent_config = agent_config,
+                env_config = PDDLEnvConfig(domain, obs_traj[t]),
+                obs_config = PerfectObsConfig(domain::Domain, obs_terms)
+            )
+            sips = SIPS(world_config, resample_cond=:none, rejuv_cond=:none)
+
+            pf_state = sips(
+                n_samples, t_obs_iter;
+                init_args=(init_strata=goal_strata,),
+                callback=callback
+            );
+
+            local anim = callback.record.animation
+
+            save(output_folder*"/infer_$(t).mp4", anim)
+        end
+    end
 end

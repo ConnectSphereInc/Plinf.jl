@@ -33,7 +33,7 @@ model configurations.
 
 $(FIELDS)    
 """
-@kwdef struct WorldConfig{A,E,O}
+@kwdef mutable struct WorldConfig{A,E,O}
   "Agent model configuration."
   agent_config::A = AgentConfig()
   "Environment model configuration."
