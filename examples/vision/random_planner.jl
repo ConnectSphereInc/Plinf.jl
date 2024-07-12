@@ -31,8 +31,6 @@ function (planner::TwoStagePlanner)(domain::Domain, state::State, goal::MinSteps
 end
 
 function solve(planner::TwoStagePlanner, domain::Domain, state::State, spec::Specification)
-    # println("Planning with TwoStagePlanner")
-    # println("State, ", PDDL.get_fluents(state) |> collect)
 
     # Extract the item from the first 'has' goal in the specification
     @unpack save_search = planner
@@ -51,7 +49,6 @@ function solve(planner::TwoStagePlanner, domain::Domain, state::State, spec::Spe
     item_visible = PDDL.satisfy(domain, state, pddl"(visible ${item})")
 
     if !item_visible
-        # println("NOT visible")
         # Create the subgoal
         subgoal = Compound(:visible, Term[item])
         spec_intermediate = Specification(subgoal)
@@ -75,7 +72,6 @@ function solve(planner::TwoStagePlanner, domain::Domain, state::State, spec::Spe
         sol = stack_solutions(sol1, sol2)
 
     else
-        # println("visible (aleady)!!")
         sol = planner.alternative_planner(domain, state, spec)
     end
 

@@ -118,7 +118,7 @@ save(output_folder*"/plan_.mp4", anim)
 # Run particle filter to perform online goal inference
 
 # Number of particles to sample
-n_samples = 100
+n_samples = 1
 
 states_split::Vector{Vector{State}} = []
 t_obs_split::Vector{Vector{Pair{Int64, DynamicChoiceMap}}} = []
