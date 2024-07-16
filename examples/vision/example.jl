@@ -72,7 +72,8 @@ planner = TwoStagePlanner(save_search=true)
 
 # Specify possible goals
 goals = @pddl("(has carrot1)", "(has onion1)")
-goal_idxs = collect(1:length(goals))
+goal_count = length(goals)
+goal_idxs = collect(1:goal_count)
 goal_names = [write_pddl(g) for g in goals]
 colors= PDDLViz.colorschemes[:vibrant]
 goal_colors = colors[goal_idxs]
@@ -127,7 +128,7 @@ callback = VIPSGridworldCallback(
     record=true
     )
 
-_ = vips(n_samples, obs_traj, obs_terms, callback; init_args=(init_strata=goal_strata,))
+vips(n_samples, obs_traj, obs_terms, callback, goal_count; init_args=(init_strata=goal_strata,))
 
 anim = callback.record.animation
 save(output_folder*"/infer.mp4", anim)

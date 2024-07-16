@@ -115,6 +115,9 @@ function VIPSGridworldCallback(
     
     # Helper function to get goal probabilities
     function get_goal_probs(t::Int, traces, log_weights)
+        if t == 0 || isempty(traces)
+            return fill(1.0 / n_goals, n_goals)  # Equal probabilities for initial state
+        end
         probs = zeros(n_goals)
         for (tr, lw) in zip(traces, log_weights)
             goal = tr[goal_addr]
