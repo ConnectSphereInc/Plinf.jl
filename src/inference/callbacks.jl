@@ -71,17 +71,13 @@ function Base.getproperty(cb::CombinedCallback, name::Symbol)
     end
 end
 
+
 """
     PrintStatsCallback((addr, support)...; kwargs...)
 
 Callback that prints statistical summaries of the distribution over values 
-at each specificed address. For each address specified, the corresponding
-support can be provided as a list of values, as `:discrete` (in which case
-the support is inferred from the particle filter state), or as `:continuous`.
-
-For discrete values, the callback prints the probability of each value in the
-support. For continuous values, the callback prints the mean and variance of
-the distribution over the address.
+at each specified address. For each address specified, the corresponding
+support can be provided as a list of values or as `:discrete`.
 
 # Keyword Arguments
 
@@ -102,30 +98,33 @@ function PrintStatsCallback(args::Tuple{Any, Any}...; kwargs...)
     return PrintStatsCallback(addrs=addrs, supports=supports; kwargs...)
 end
 
-function (cb::PrintStatsCallback)(t::Int, obs, pf_state)
+function (cb::PrintStatsCallback)(t::Int, traces, log_weights)
     if cb.header !== nothing && t == 0
         println(cb.io, cb.header)
     end
     @printf(cb.io, "t = %d\t", t)
     for (addr, support) in zip(cb.addrs, cb.supports)
         if addr isa Function
-            addr = addr(t, pf_state)
+            addr = addr(t, traces, log_weights)
         end
         if support == :discrete || support isa AbstractVector
-            # Print probabilities of each discrete value
-            if support == :discrete
-                probs = probvec(pf_state, addr)
-            else
-                probs = probvec(pf_state, addr, support)
+            # Calculate probabilities for each discrete value
+            probs = zeros(length(support))
+            for (tr, lw) in zip(traces, log_weights)
+                val = tr[addr]
+                if support == :discrete
+                    probs[val] += exp(lw)
+                else
+                    idx = findfirst(==(val), support)
+                    if !isnothing(idx)
+                        probs[idx] += exp(lw)
+                    end
+                end
             end
+            probs ./= sum(probs)
             for p in probs
                 @printf(cb.io, "%0.3f\t", p)
             end
-        elseif support == :continuous
-            # Print mean and variance of continuous valued address
-            val_mean = mean(pf_state, addr)
-            val_var = var(pf_state, addr)
-            @printf(cb.io, "%.3g\t%.3g", val_mean, val_var)
         end
     end
     println(cb.io)

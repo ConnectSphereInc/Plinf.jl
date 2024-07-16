@@ -30,9 +30,9 @@ Runs VIPS
 """
 (vips::VIPS)(args...; kwargs...) = vips_run(vips, args...; kwargs...)
 
-function vips_run(vips::VIPS, n_samples::Int, obs_traj::Vector{State}, obs_terms::Vector{Term}; init_args=Dict{Symbol, Any}())
+function vips_run(vips::VIPS, n_samples::Int, obs_traj::Vector{State}, obs_terms::Vector{Term}, callback::Function; init_args=Dict{Symbol, Any}())
     num_steps = length(obs_traj)
-
+    
     # Split the time series of observations into overlapping groups of two
     for t in 1:num_steps-1
         # Construct a choicemap containing the current state and the next state
@@ -54,11 +54,9 @@ function vips_run(vips::VIPS, n_samples::Int, obs_traj::Vector{State}, obs_terms
         end
         goal_probs ./= sum(goal_probs)
 
-        # Print goal probabilities
-        println("t = $t: goal 1 prob = $(goal_probs[1]), goal 2 prob = $(goal_probs[2])")
-
-        # Update the environment configuration with the next observed state
+        # Update the environment
         vips.world_config.env_config = PDDLEnvConfig(vips.domain, obs_traj[t+1])
+        callback(t, traces, log_norm_weights)
     end
 
     return 0

@@ -1,7 +1,6 @@
 using DataStructures: OrderedDict
 using PDDLViz: RGBA, to_color, set_alpha
 using Base: @kwdef
-
 import SymbolicPlanners: compute, get_goal_terms
 
 "Converts an (x, y) position to a corresponding goal term."
@@ -73,51 +72,63 @@ function unlock_doors(state::State)
 end
 
 """
-    DKGCombinedCallback(renderer, domain; kwargs...)
+    VIPSGridworldCallback(renderer, domain; kwargs...)
 
-Convenience constructor for a combined particle filter callback that 
-logs data and visualizes inference for the doors, keys and gems domain.
+Convenience constructor for a combined callback that logs data and visualizes
+inference for a gridworld domain using the VIPS (Vision Enhanced Plan Search) algorithm.
 
 # Keyword Arguments
 
 - `goal_addr`: Trace address of goal variable.
 - `goal_names`: Names of goals.
 - `goal_colors`: Colors of goals.
-- `obs_trajectory = nothing`: Ground truth / observed trajectory.
-- `print_goal_probs = true`: Whether to print goal probabilities.
-- `render = true`: Whether to render the gridworld.
-- `inference_overlay = true`: Whether to render inference overlay.
-- `plot_goal_bars = false`: Whether to plot goal probabilities as a bar chart.
-- `plot_goal_lines = false`: Whether to plot goal probabilities over time.
-- `record = false`: Whether to record the figure.
-- `sleep = 0.2`: Time to sleep between frames.
-- `framerate = 5`: Framerate of recorded video.
-- `format = "mp4"`: Format of recorded video.
+- `obs_trajectory`: Ground truth / observed trajectory.
+- `print_goal_probs`: Whether to print goal probabilities.
+- `render`: Whether to render the gridworld.
+- `plot_goal_bars`: Whether to plot goal probabilities as a bar chart.
+- `plot_goal_lines`: Whether to plot goal probabilities over time.
+- `record`: Whether to record the figure.
+- `sleep`: Time to sleep between frames.
+- `framerate`: Framerate of recorded video.
+- `format`: Format of recorded video.
 """    
-function DKGCombinedCallback(
-    renderer::GridworldRenderer, domain::Domain;
+function VIPSGridworldCallback(
+    renderer::GridworldRenderer,
+    domain::Domain;
     goal_addr = :init => :agent => :goal => :goal,
-    goal_names = [ "(has carrot1)", "(has onion1)"],
-    goal_colors = PDDLViz.colorschemes[:vibrant][1:length(goal_names)],
+    goal_names = ["Goal $i" for i in 1:2],
+    goal_colors = [:orange, :magenta],
     obs_trajectory = nothing,
     print_goal_probs::Bool = true,
     render::Bool = true,
-    inference_overlay = true,
-    plot_goal_bars::Bool = false,
-    plot_goal_lines::Bool = false,
+    plot_goal_bars::Bool = true,
+    plot_goal_lines::Bool = true,
     record::Bool = false,
     sleep::Real = 0.2,
     framerate = 5,
-    format = "mp4"
+    format = "mp4",
+    inference_overlay = true
 )
-    callbacks = OrderedDict{Symbol, SIPSCallback}()
+    callbacks = OrderedDict{Symbol, Any}()
     n_goals = length(goal_names)
+    goal_support = 1:n_goals
+    
+    # Helper function to get goal probabilities
+    function get_goal_probs(t::Int, traces, log_weights)
+        probs = zeros(n_goals)
+        for (tr, lw) in zip(traces, log_weights)
+            goal = tr[goal_addr]
+            probs[goal] += exp(lw)
+        end
+        return probs ./ sum(probs)
+    end
+    
     # Construct data logger callback
     callbacks[:logger] = DataLoggerCallback(
-        t = (t, pf) -> t::Int,
-        goal_probs = pf -> probvec(pf, goal_addr, 1:n_goals)::Vector{Float64},
-        lml_est = pf -> log_ml_estimate(pf)::Float64,
+        t = (t, _, _) -> t::Int,
+        goal_probs = get_goal_probs,
     )
+    
     # Construct print callback
     if print_goal_probs
         callbacks[:print] = PrintStatsCallback(
@@ -125,15 +136,24 @@ function DKGCombinedCallback(
             header="t\t" * join(goal_names, "\t") * "\n"
         )
     end
+    
     # Construct render callback
     if render
-        figure = Figure(resolution=renderer.resolution)
+        figure = Figure(resolution=(600, 600))
         if inference_overlay
-            function trace_color_fn(tr)
+            function static_goal_color_fn(tr)
                 goal_idx = tr[goal_addr]
                 return goal_colors[goal_idx]
             end
-            overlay = DKGInferenceOverlay(trace_color_fn=trace_color_fn)
+            function dyn_goal_color_fn(tr)
+                addr = goal_addr(tr)
+                goal_spec = tr[addr]
+                goal_idx = findfirst(==(goal_spec), goal_support)
+                return goal_colors[goal_idx]
+            end
+            overlay = goal_addr isa Function ?
+                GridworldInferenceOverlay(trace_color_fn=dyn_goal_color_fn) :
+                GridworldInferenceOverlay(trace_color_fn=static_goal_color_fn)
         end
         callbacks[:render] = RenderCallback(
             renderer, figure[1, 1], domain;
@@ -141,57 +161,61 @@ function DKGCombinedCallback(
             overlay = inference_overlay ? overlay : nothing
         )
     end
+    
     # Construct plotting callbacks
     if plot_goal_bars || plot_goal_lines
         if render
-            resize!(figure, 1200, renderer.resolution[2])
-            side_layout = GridLayout(figure[1, 2])
+            resize!(figure, 1200, 600)
         else
-            figure = Figure(resolution=renderer.resolution)
-            side_layout = GridLayout(figure[1, 1])
+            figure = Figure(resolution=(600, 600))
         end
+        side_layout = GridLayout(figure[1, 2])
     end
+    
     if plot_goal_bars
         callbacks[:goal_bars] = BarPlotCallback(
-            side_layout[1, 1],
-            pf -> probvec(pf, goal_addr, 1:n_goals)::Vector{Float64};
+            side_layout[1, 1], get_goal_probs;
             color = goal_colors,
             axis = (xlabel="Goal", ylabel = "Probability",
                     limits=(nothing, (0, 1)), 
-                    xticks=(1:length(goals), goal_names))
+                    xticks=(1:n_goals, goal_names))
         )
     end
+    
     if plot_goal_lines
         callbacks[:goal_lines] = SeriesPlotCallback(
             side_layout[2, 1],
             callbacks[:logger], 
-            :goal_probs, # Look up :goal_probs variable
-            ps -> reduce(hcat, ps); # Convert vectors to matrix for plotting
+            :goal_probs,
+            ps -> reduce(hcat, ps);
             color = goal_colors, labels = goal_names,
             axis = (xlabel="Time", ylabel = "Probability",
                     limits=((1, nothing), (0, 1))),
             legend_title = "Goals",
-            legend_args = (framevisible=false, position=:rt)        
+            legend_args = (framevisible=false, position=:rt)
         )
     end
+    
     # Construct recording callback
     if record && (render || plot_goal_bars || plot_goal_lines)
         callbacks[:record] = RecordCallback(figure, framerate=framerate,
                                             format=format)
     end
+    
     # Display figure
     if render || plot_goal_bars || plot_goal_lines
         display(figure)
     end
+    
     # Combine all callback functions
     callback = CombinedCallback(;sleep=sleep, callbacks...)
     return callback
 end
 
 """
-    DKGInferenceOverlay(; kwargs...)
+    GridworldInferenceOverlay(; kwargs...)
 
-Inference overlay renderer for the doors, keys and gems domain.
+Inference overlay renderer for the gridworld domain.
 
 # Keyword Arguments
 
@@ -200,7 +224,7 @@ Inference overlay renderer for the doors, keys and gems domain.
 - `max_future_steps = 50`: Maximum number of future steps to render.
 - `trace_color_fn = tr -> :red`: Function to determine the color of a trace.
 """
-@kwdef mutable struct DKGInferenceOverlay
+@kwdef mutable struct GridworldInferenceOverlay
     show_state::Bool = false
     show_future_states::Bool = true
     max_future_steps::Int = 50
@@ -210,85 +234,105 @@ Inference overlay renderer for the doors, keys and gems domain.
     future_obs::Vector = Observable[]
 end
 
-function (overlay::DKGInferenceOverlay)(
+function (overlay::GridworldInferenceOverlay)(
     canvas::Canvas, renderer::GridworldRenderer, domain::Domain,
-    t::Int, obs::ChoiceMap, pf_state::ParticleFilterState
+    t::Int, traces::Vector, log_weights::Vector
 )
-    traces = get_traces(pf_state)
-    weights = get_norm_weights(pf_state)
+
     # Render future states (skip t = 0 since plans are not yet available) 
     if overlay.show_future_states && t > 0
-        for (i, (tr, w)) in enumerate(zip(traces, weights))
-            # Get current belief, goal, and plan
-            belief_state = tr[:timestep => t => :agent => :belief]
-            goal_state = tr[:timestep => t => :agent => :goal]
-            plan_state = tr[:timestep => t => :agent => :plan]
-            # Rollout planning solution until goal is reached
-            state = convert(State, belief_state)
-            spec = convert(Specification, goal_state)
-            sol = plan_state.sol
-            future_states = Vector{typeof(state)}()
-            for _ in 1:overlay.max_future_steps
-                if sol isa NullSolution break end
-                act = best_action(sol, state)
-                if ismissing(act) break end
-                state = transition(domain, state, act)
-                push!(future_states, state)
-                if is_goal(spec, domain, state) break end
-            end
-            if isempty(future_states)
-                push!(future_states, state)
-            end
-            # Render or update future states
-            color = overlay.trace_color_fn(tr)
-            future_obs = get(overlay.future_obs, i, nothing)
-            color_obs = get(overlay.color_obs, i, nothing)
-            if isnothing(future_obs)
-                future_obs = Observable(future_states)
-                color_obs = Observable(to_color((color, w)))
-                push!(overlay.future_obs, future_obs)
-                push!(overlay.color_obs, color_obs)
-                options = renderer.trajectory_options
-                object_colors=fill(color_obs, length(options[:tracked_objects]))
-                type_colors=fill(color_obs, length(options[:tracked_types]))
-                render_trajectory!(
-                    canvas, renderer, domain, future_obs;
-                    track_markersize=0.5, agent_color=color_obs,
-                    object_colors=object_colors, type_colors=type_colors
-                )
-            else
-                future_obs[] = future_states
-                color_obs[] = to_color((color, w))
+        for (i, (tr, lw)) in enumerate(zip(traces, log_weights))
+            try
+                belief_state = tr[:timestep => 1 => :obs] # in our implementation agent perfectly observes, meaning observation = belief
+                goal_state = tr[:init => :agent => :goal]
+                plan_state = tr[:timestep => 1 => :agent => :plan]
+
+                # Rollout planning solution until goal is reached
+                if @isdefined(belief_state) && @isdefined(goal_state) && @isdefined(plan_state)
+                    state = convert(State, belief_state)
+                    spec = convert(Specification, goal_state)
+                    sol = plan_state.sol
+                    future_states = Vector{typeof(state)}()
+                    for _ in 1:overlay.max_future_steps
+                        if sol isa NullSolution break end
+                        act = best_action(sol, state)
+                        if ismissing(act) break end
+                        state = transition(domain, state, act)
+                        push!(future_states, state)
+                        if is_goal(spec, domain, state) break end
+                    end
+                    if isempty(future_states)
+                        push!(future_states, state)
+                    end
+
+                    # Render or update future states
+                    color = overlay.trace_color_fn(tr)
+                    future_obs = get(overlay.future_obs, i, nothing)
+                    color_obs = get(overlay.color_obs, i, nothing)
+                    if isnothing(future_obs)
+                        future_obs = Observable(future_states)
+                        color_obs = Observable(to_color((color, exp(lw))))
+                        push!(overlay.future_obs, future_obs)
+                        push!(overlay.color_obs, color_obs)
+                        options = renderer.trajectory_options
+                        object_colors=fill(color_obs, length(options[:tracked_objects]))
+                        type_colors=fill(color_obs, length(options[:tracked_types]))
+                        render_trajectory!(
+                            canvas, renderer, domain, future_obs;
+                            track_markersize=0.5, agent_color=color_obs,
+                            object_colors=object_colors, type_colors=type_colors
+                        )
+                    else
+                        future_obs[] = future_states
+                        color_obs[] = to_color((color, exp(lw)))
+                    end
+                else
+                    println("Skipping future state rendering due to missing data")
+                end
+
+            catch e
+                println("Error processing trace $i:")
+                println(e)
+                println(stacktrace(catch_backtrace()))
             end
         end
     end
+
     # Render current state's agent location
     if overlay.show_state
-        for (i, (tr, w)) in enumerate(zip(traces, weights))
-            # Get current inferred environment state
-            env_state = t == 0 ? tr[:init => :env] : tr[:timestep => t => :env]
-            state = convert(State, env_state)
-            # Construct or update color observable
-            color = overlay.trace_color_fn(tr)
-            color_obs = get(overlay.color_obs, i, nothing)
-            if isnothing(color_obs)
-                color_obs = Observable(to_color((color, w)))
-            else
-                color_obs[] = to_color((color, w))
-            end
-            # Render or update state
-            state_obs = get(overlay.state_obs, i, nothing)
-            if isnothing(state_obs)
-                state_obs = Observable(state)
-                push!(overlay.state_obs, state_obs)
-                _trajectory = @lift [$state_obs]
-                render_trajectory!(
-                    canvas, renderer, domain, _trajectory;
-                    agent_color=color_obs, track_markersize=0.6,
-                    track_stopmarker='▣' 
-                ) 
-            else
-                state_obs[] = state
+        for (i, (tr, lw)) in enumerate(zip(traces, log_weights))
+            try
+                # Get current inferred environment state
+                env_state = t == 0 ? tr[:init => :obs] : tr[:timestep => t => :obs]
+                state = convert(State, env_state)
+
+                # Construct or update color observable
+                color = overlay.trace_color_fn(tr)
+                color_obs = get(overlay.color_obs, i, nothing)
+                if isnothing(color_obs)
+                    color_obs = Observable(to_color((color, exp(lw))))
+                else
+                    color_obs[] = to_color((color, exp(lw)))
+                end
+
+                # Render or update state
+                state_obs = get(overlay.state_obs, i, nothing)
+                if isnothing(state_obs)
+                    state_obs = Observable(state)
+                    push!(overlay.state_obs, state_obs)
+                    _trajectory = @lift [$state_obs]
+                    render_trajectory!(
+                        canvas, renderer, domain, _trajectory;
+                        agent_color=color_obs, track_markersize=0.6,
+                        track_stopmarker='▣' 
+                    ) 
+                else
+                    state_obs[] = state
+                end
+            catch e
+                println("Error processing state for trace $i:")
+                println(e)
+                println(stacktrace(catch_backtrace()))
             end
         end
     end
@@ -297,8 +341,8 @@ end
 "Adds a subplot to a storyboard with a line plot of goal probabilities."
 function storyboard_goal_lines!(
     storyboard::Figure, goal_probs, ts=Int[];
-    goal_names = ["(has gem1)", "(has gem3)"],
-    goal_colors = PDDLViz.colorschemes[:vibrant][1:length(goal_names)],
+    goal_names = ["A", "B", "C"],
+    goal_colors = [:orange, :magenta, :blue],
     show_legend = false
 )
     n_rows, n_cols = size(storyboard.layout)
@@ -323,6 +367,6 @@ function storyboard_goal_lines!(
     end
     # Resize figure to fit new plot
     rowsize!(storyboard.layout, n_rows+1, Auto(0.25))
-    # resize!(storyboard, (width, height * 1.3))
+    resize!(storyboard, (width, height * 1.3))
     return storyboard
 end

@@ -137,9 +137,15 @@ a fixed budget.
     # Return original plan if an action is already computed
     if (has_action(plan_state, t, belief_state) &&
         (plan_state.spec === spec || plan_state.spec == spec))
+        plan_states = [plan_state]
+        @dist plan_state_dist() = plan_states[categorical([1.0])];
+        x = {:plan} ~ plan_state_dist()
         return plan_state
     else # Otherwise replan from the current belief state
         sol = planner(domain, belief_state, spec)
+        sols = [sol]
+        @dist plan_state_dist() = sols[categorical([1.0])];
+        x = {:plan} ~ plan_state_dist()
         return PlanState(t, sol, spec)
     end
 end
