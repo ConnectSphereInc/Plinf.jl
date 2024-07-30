@@ -14,7 +14,7 @@ PDDL.Arrays.register!()
 println("Loading domain")
 domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
 println("Loading problem")
-problem = load_problem(joinpath(@__DIR__, "problems", "problem-2.pddl"))
+problem = load_problem(joinpath(@__DIR__, "problems", "problem-4.pddl"))
 
 # Initialize state and construct goal specification
 println("Initializing state")
