@@ -7,7 +7,7 @@ using Random
 
 @dist labeled_uniform(labels) = labels[uniform_discrete(1, length(labels))]
 
-gpt3_mixture = GPT3Mixture(model="davinci-002", stop="\n", max_tokens=512)
+gpt3_mixture = GPT3GF(model="davinci-002", stop="\n", max_tokens=512, temperature=1)
 
 COMMAND_EXAMPLES = [
     ("has(carrot)", "Visible: carrot", "Can you get that?"),
@@ -44,6 +44,7 @@ Samples a goal and an utterance given a State.
 
     # Can manually set visiblity for testing purposes
     # PDDL.set_fluent!(state, true, pddl"(visible carrot1)")
+    # PDDL.set_fluent!(state, false, pddl"(visible onion1)")
 
     items = PDDL.get_objects(domain, state, :item)
     item_visibilities = Dict(item => PDDL.satisfy(domain, state, pddl"(visible $item)") for item in items)
@@ -88,7 +89,7 @@ Samples a goal and an utterance given a State.
         context = "Visible objects: " * join(visible_items, ", ")
     end
     # Generate utterance based on goal and context
-    prompts = [construct_utterance_prompt(goal, context)]
+    prompts = construct_utterance_prompt(goal, context)
     utterance ~ gpt3_mixture(prompts)
 
     return (utterance, goal)

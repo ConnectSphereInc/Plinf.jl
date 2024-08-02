@@ -109,25 +109,21 @@ agent_config = AgentConfig(domain,  planner; goal_config = StaticGoalConfig(goal
 #--- Generate Trajectory ---#
 
 # Human utters a command in natural language
-utterance = " Get some carrots."
+utterance = " Can you grab an onion?"
 
 # Assistant A infers the humans goal from the human's utterance
 goals_string::Vector{String} = pddl_goals_to_strings(goals)
 utterance, _ = utterance_model(goals_string, domain, state)
 
 observations = choicemap((:utterance => :output, utterance))
-traces, weights = importance_sampling(utterance_model, (goals_string, domain, state), observations, 10)
+traces, weights = importance_sampling(utterance_model, (goals_string, domain, state), observations, 100)
 probs = calculate_goal_probs(traces, weights)
 println("\nInferred Probabilities:")
 println(probs)
+most_likely_goal = argmax(probs)
+parsed_goal = PDDL.parse_pddl(most_likely_goal)
 
 # Assistance A carries out the task to achieve the humans goal
-most_likely_goal = argmax(probs)
-println("Most likely goal: ", most_likely_goal)
-println(typeof(most_likely_goal))
-
-
-parsed_goal = PDDL.parse_pddl(most_likely_goal)
 
 # Construct a trajectory with backtracking to perform inference on
 sol = AStarPlanner(GoalManhattan(), save_search=true)(domain, state, parsed_goal)
@@ -140,6 +136,8 @@ anim = anim_plan(renderer, domain, state, plan; format="gif", framerate=2, trail
 save(output_folder*"/plan_.mp4", anim)
 
 #--- Online Goal Inference ---#
+
+# Assistant B infers the goal of Assistant A from their actions
 
 n_samples = 100
 
