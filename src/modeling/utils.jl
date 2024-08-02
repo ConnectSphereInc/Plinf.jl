@@ -1,4 +1,4 @@
-export labeled_cat, labeled_unif, flip, sym_binom, shifted_neg_binom, ground_term
+export labeled_cat, labeled_unif, flip, sym_binom, shifted_neg_binom, ground_term, compound_to_string
 
 "Labeled categorical distribution."
 @dist labeled_cat(labels, probs) = labels[categorical(probs)]

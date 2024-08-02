@@ -5,6 +5,7 @@ include("beliefs.jl")
 include("goals.jl")
 include("plans.jl")
 include("actions.jl")
+include("utterances.jl")
 
 """
     AgentState
