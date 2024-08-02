@@ -1,6 +1,6 @@
 import GenParticleFilters: ParticleFilterView
 
-export probvec, pddl_goals_to_strings, calculate_goal_probs, print_probs
+export probvec, pddl_goals_to_strings, calculate_goal_probs, calculate_goal_probs_world_model, print_probs
 
 """
     probvec(pf::ParticleFilterView, addr)
@@ -51,6 +51,22 @@ function calculate_goal_probs(traces, weights)
     probs = Dict{String, Float64}()
     for (tr, w) in zip(traces, weights)
         goal = tr[:goal]
+        p = get(probs, goal, 0.0)
+        probs[goal] = p + exp(w)
+    end
+    
+    total_prob = sum(values(probs))
+    for (goal, p) in probs
+        probs[goal] = p / total_prob
+    end
+    return probs
+end
+
+"Calculate probabilities for each goal based on traces and weights."
+function calculate_goal_probs_world_model(traces, weights)
+    probs = Dict{Int64, Float64}()
+    for (tr, w) in zip(traces, weights)
+        goal = tr[:init => :agent => :goal => :goal]
         p = get(probs, goal, 0.0)
         probs[goal] = p + exp(w)
     end

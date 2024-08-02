@@ -2,42 +2,24 @@ using PDDL, Printf
 using SymbolicPlanners, Plinf
 using Gen, GenParticleFilters
 using PDDLViz, GLMakie
-
 using DotEnv
+using Random
+include("utils.jl")
+include("random_planner.jl")
 
-# Read in the OpenAI API key
 overlay = DotEnv.config()
 api_key = get(overlay, "OPENAI_API_KEY", nothing)
 ENV["OPENAI_API_KEY"] = api_key
 
-include("utils.jl")
-include("random_planner.jl")
-
-# Register PDDL array theory
-println("Registering PDDL array theory")
 PDDL.Arrays.register!()
-
-# Load domain and problem
-println("Loading domain")
 domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
-println("Loading problem")
 problem::Problem = load_problem(joinpath(@__DIR__, "problems", "problem-2.pddl"))
-
-# Initialize state and construct goal specification
-println("Initializing state")
 state = initstate(domain, problem)
-println("Constructing goal specification")
 spec = Specification(problem)
-
-# Compile domain for faster performance
-println("Compiling domain")
 domain, state = PDDL.compiled(domain, state)
 
-#--- Define Renderer ---#
-println("Defining renderer")
-
 # Construct gridworld renderer
-renderer = PDDLViz.GridworldRenderer(
+renderer_A = PDDLViz.GridworldRenderer(
     resolution = (600, 700),
     agent_renderer = (d, s) -> begin
         HumanGraphic(color=:black)
@@ -59,10 +41,31 @@ renderer = PDDLViz.GridworldRenderer(
     vision_fns = [(d, s, o) -> s[Compound(:visible, [o])]],
     vision_types = [:item]
 )
+canvas_A = renderer_A(domain, state)
 
-# Visualize initial state
-println("Visualizing initial state")
-canvas = renderer(domain, state)
+renderer_B = PDDLViz.GridworldRenderer(
+    resolution = (600, 700),
+    agent_renderer = (d, s) -> begin
+        HumanGraphic(color=:black)
+    end,
+    obj_renderers = Dict(
+        :carrot => (d, s, o) -> begin
+            visible = !s[Compound(:has, [o])]
+            CarrotGraphic(visible=visible)
+        end,
+        :onion => (d, s, o) -> begin
+            visible = !s[Compound(:has, [o])]
+            OnionGraphic(visible=visible)
+        end
+    ),
+    show_inventory = true,
+    inventory_fns = [(d, s, o) -> s[Compound(:has, [o])]],
+    inventory_types = [:item],
+    show_vision = true,
+    vision_fns = [(d, s, o) -> s[Compound(:visible, [o])]],
+    vision_types = [:item]
+)
+canvas_B = renderer_B(domain, state)
 
 # Make the output folder
 output_folder = "examples/vision/output"
@@ -70,15 +73,12 @@ if !isdir(output_folder)
     mkdir(output_folder)
 end
 
-# Save the canvas to a file
-println("Saving initial state to file")
-save(output_folder*"/initial_state.png", canvas)
-
 #--- Model Configuration ---#
 planner = TwoStagePlanner(save_search=true)
 
 # Specify possible goals
 goals = @pddl("(has carrot1)", "(has onion1)")
+goals_string::Vector{String} = pddl_goals_to_strings(goals)
 goal_count = length(goals)
 goal_idxs = collect(1:goal_count)
 goal_names = [write_pddl(g) for g in goals]
@@ -91,10 +91,8 @@ goal_colors = colors[goal_idxs]
     return Specification(goals[goal])
 end
 
-# Construct iterator over goal choicemaps for stratified sampling
 goal_addr = :init => :agent => :goal => :goal
 goal_strata = choiceproduct((goal_addr, 1:length(goals)))
-
 obs_terms = [
     pddl"(xpos)",
     pddl"(ypos)",
@@ -103,59 +101,95 @@ obs_terms = [
     pddl"(forall (?i - item) (offgrid ?i))"
 ]
 obs_terms = vcat([ground_term(domain, state, term) for term in obs_terms]...)
+agent_config = AgentConfig(domain, planner; goal_config = StaticGoalConfig(goal_prior))
 
-agent_config = AgentConfig(domain,  planner; goal_config = StaticGoalConfig(goal_prior))
-
-#--- Generate Trajectory ---#
+#--- Interactive Simulation ---#
 
 # Human utters a command in natural language
-utterance = " Can you grab an onion?"
+utterance = "Can you grab an onion?"
+println("Human uttered: $utterance")
 
 # Assistant A infers the humans goal from the human's utterance
-goals_string::Vector{String} = pddl_goals_to_strings(goals)
-utterance, _ = utterance_model(goals_string, domain, state)
-
 observations = choicemap((:utterance => :output, utterance))
-traces, weights = importance_sampling(utterance_model, (goals_string, domain, state), observations, 100)
+traces, weights = importance_sampling(utterance_model, (goals_string, domain, state), observations, 50)
 probs = calculate_goal_probs(traces, weights)
-println("\nInferred Probabilities:")
-println(probs)
 most_likely_goal = argmax(probs)
+println("Assistant A believes the most likely goal of the human is: $most_likely_goal")
+
+# Assistance A forms a plan to achieve the inferred goal of the human
 parsed_goal = PDDL.parse_pddl(most_likely_goal)
+sol_A = TwoStagePlanner()(domain, state, parsed_goal)
+plan_A = [collect(sol_A);]
+obs_traj_A::Vector{State} = PDDL.simulate(domain, state, plan_A)
+num_steps_A = length(obs_traj_A)
 
-# Assistance A carries out the task to achieve the humans goal
-
-# Construct a trajectory with backtracking to perform inference on
-sol = AStarPlanner(GoalManhattan(), save_search=true)(domain, state, parsed_goal)
-
-plan = [collect(sol);]
-obs_traj::Vector{State} = PDDL.simulate(domain, state, plan)
-num_steps = length(obs_traj)
-
-anim = anim_plan(renderer, domain, state, plan; format="gif", framerate=2, trail_length=10)
-save(output_folder*"/plan_.mp4", anim)
-
-#--- Online Goal Inference ---#
-
-# Assistant B infers the goal of Assistant A from their actions
-
-n_samples = 100
-
-initial_world_config = WorldConfig(
+initial_world_config_A = WorldConfig(
     agent_config = agent_config,
-    env_config = PDDLEnvConfig(domain, obs_traj[1]),
+    env_config = PDDLEnvConfig(domain, state),
+    obs_config = PerfectObsConfig(domain::Domain, obs_terms)
+)
+initial_world_config_B = WorldConfig(
+    agent_config = agent_config,
+    env_config = PDDLEnvConfig(domain, state),
     obs_config = PerfectObsConfig(domain::Domain, obs_terms)
 )
 
-vips = VIPS(initial_world_config, domain)
-callback = VIPSGridworldCallback(
-    renderer,
-    vips.domain,
-    obs_trajectory=obs_traj,
+vips_A = VIPS(initial_world_config_A, domain)
+vips_B = VIPS(initial_world_config_B, domain)
+
+callback_A = VIPSGridworldCallback(
+    renderer_A,
+    vips_A.domain,
+    obs_trajectory=obs_traj_A,
     record=true
-    )
+)
 
-vips(n_samples, obs_traj, obs_terms, callback, goal_count; init_args=(init_strata=goal_strata,))
+# todo: update T_max
+T_max = num_steps_A
+initial_goal_probs = fill(1.0 / goal_count, goal_count)
+callback_A(0, [], initial_goal_probs)
 
-anim = callback.record.animation
-save(output_folder*"/infer.mp4", anim)
+global assistant_b_planned::Bool = false
+
+# For all of the timesteps
+for t in 1:T_max-1
+
+    # Assistant B infers the goal of Assistant A
+    obs_current::ChoiceMap = state_choicemap(obs_traj_A[t], obs_terms)
+    obs_next::ChoiceMap = state_choicemap(obs_traj_A[t+1], obs_terms)
+    total_observations = choicemap()
+    set_submap!(total_observations, :init => :obs, obs_current)
+    set_submap!(total_observations, :timestep => 1 => :obs, obs_next)
+    traces_obs, weights_obs = importance_sampling(world_model, (1, initial_world_config_A), total_observations, 100)
+    callback_A(t, traces_obs, weights_obs)
+    probs_obs = calculate_goal_probs_world_model(traces_obs, weights_obs)
+    most_likely_goal_obs = goals_string[argmax(probs_obs)]
+    most_likely_goal_probs = probs_obs[argmax(probs_obs)]
+
+    # If the Assistant B is certain of this goal, they will carry out another action to assist the human.
+    if most_likely_goal_probs > 0.7 && assistant_b_planned == false
+        # todo: this should be formalised into an assistant policy
+        remaining_goals::Vector{String} = filter(goal -> goal != most_likely_goal_obs, goals_string)
+        assistant_b_goal::String = rand(remaining_goals)
+        println("Assistant B is confident that Assistant A is aiming to achieve the goal: $most_likely_goal_obs.")
+        println("Assistant B chooses to achieve the goal: $assistant_b_goal")
+        local parsed_goal = PDDL.parse_pddl(assistant_b_goal)
+        sol_B = TwoStagePlanner()(domain, state, parsed_goal)
+        global plan_B = [collect(sol_B);]
+        obs_traj_B::Vector{State} = PDDL.simulate(domain, state, plan_B)
+        global callback_B = VIPSGridworldCallback(renderer_B, vips_B.domain, obs_trajectory=obs_traj_B, record=true)
+        global assistant_b_planned = true
+    end
+
+    # Assistant A takes the planned action
+    vips_A.world_config.env_config = PDDLEnvConfig(vips_A.domain, obs_traj_A[t+1])
+
+end
+
+anim_A = anim_plan(renderer_A, domain, state, plan_A; format="gif", framerate=2, trail_length=10)
+save(output_folder*"/plan_A.mp4", anim_A)
+
+
+anim_B = anim_plan(renderer_B, domain, state, plan_B; format="gif", framerate=2, trail_length=10)
+save(output_folder*"/plan_B.mp4", anim_B)
+
