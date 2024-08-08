@@ -26,5 +26,5 @@
         (= (xloc robot2) 9)
         (= (yloc robot2) 9)
     )
-    (:goal (has robot1 gem1)) ; the agents have collected all gems
+    (:goal (and (offgrid gem1) (offgrid gem2))) ; all gems are off the grid (collected)
 )

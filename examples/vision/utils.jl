@@ -398,3 +398,25 @@ function search_for_visibility(planner, domain, state, spec)
                              0, search_tree, [node.id], UInt[])
     search!(sol, planner, domain, simplify_goal(spec, domain, state), state)
 end
+
+function get_offgrid_items(state)
+    return [item for item in items if !state[PDDL.parse_pddl("(offgrid $item)")]]
+end
+
+function create_plan(planner, domain, state, remaining_items, agent)
+    goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
+    goal = PDDL.parse_pddl(goal_str)
+    println("Created goal for agent $agent: $(write_pddl(goal))")
+    
+    try
+        sol = planner(domain, state, goal)
+        if sol isa NullSolution
+            println("Warning: Planner returned NullSolution for agent $agent")
+            return []  # Return an empty plan instead of NullSolution
+        end
+        return collect(sol)
+    catch e
+        println("Error in planning for agent $agent: $e")
+        return []  # Return an empty plan in case of error
+    end
+end

@@ -41,7 +41,6 @@ function solve(planner::TwoStagePlanner, domain::Domain, state::State, spec::Spe
     @unpack save_search, agent, alternative_planner = planner
     
     items = extract_items_from_spec(spec)
-    isempty(items) && error("No 'has' goals found in specification")
 
     if !any(item -> PDDL.satisfy(domain, state, pddl"(visible $agent $item)"), items)
         spec_intermediate = create_visibility_spec(agent, items)
