@@ -129,23 +129,30 @@ function expand!(
     if isempty(available_actions)
         return  # Return if there is no direction to proceed
     end
-
-    # Remove visited states from available actions as much as possible
-    unvisited_and_available_actions = []
-    for act in available_actions
-        next_state = PDDL.transition(domain, state, act, check=false)
-        next_agent_pos = get_agent_pos(next_state, planner.agent)
-        if !(next_agent_pos in visited)
-            push!(unvisited_and_available_actions, act)
+    println("Available actions: ", available_actions)
+    # Check if the communicate action is available
+    communicate_action = findfirst(act -> act.name == :communicate, available_actions)
+    if communicate_action !== nothing
+        chosen_action = available_actions[communicate_action]
+    else
+        # Remove visited states from available actions as much as possible
+        unvisited_and_available_actions = []
+        for act in available_actions
+            next_state = PDDL.transition(domain, state, act, check=false)
+            next_agent_pos = get_agent_pos(next_state, planner.agent)
+            if !(next_agent_pos in visited)
+                push!(unvisited_and_available_actions, act)
+            end
         end
+
+        if isempty(unvisited_and_available_actions)
+            unvisited_and_available_actions = available_actions
+        end
+
+        # Randomly select actions and transitions
+        chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     end
 
-    if isempty(unvisited_and_available_actions)
-        unvisited_and_available_actions = available_actions
-    end
-
-    # Randomly select actions and transitions
-    chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     next_state = PDDL.transition(domain, state, chosen_action, check=false)
     next_id = hash(next_state)
     next_agent_pos = get_agent_pos(next_state, planner.agent)

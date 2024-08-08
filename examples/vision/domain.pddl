@@ -13,12 +13,22 @@
         (xloc ?o - object) (yloc ?o - object) - integer
         (walls)- bit-matrix
     )
-    (:action pickup
+        (:action pickup
         :parameters (?a - agent ?i - item)
         :precondition (and (not (has ?a ?i)) (= (xloc ?a) (xloc ?i)) (= (yloc ?a) (yloc ?i)))
         :effect (and (has ?a ?i) (offgrid ?i)
-                     (assign (xloc ?i) -10) (assign (yloc ?i) -10))
-    )
+                        (assign (xloc ?i) -10) (assign (yloc ?i) -10)
+                        (not (visible ?a ?i)))  ; assuming ?i instead of ?o for the item
+        )
+
+        (:action communicate
+        :parameters (?a1 ?a2 - agent)
+        :precondition (and 
+                (visible ?a1 ?a2)
+                (not (= ?a1 ?a2))
+        )
+        :effect (not (visible ?a1 ?a2))
+        )
     (:action up
         :parameters (?a - agent)
         :precondition (and (> (yloc ?a) 1)
