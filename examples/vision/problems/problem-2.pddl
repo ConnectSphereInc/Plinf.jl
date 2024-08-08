@@ -1,13 +1,13 @@
 (define (problem vision-2)
     (:domain vision)
-    (:objects
-        carrot1 - carrot 
-        onion1 - onion)
+    (:objects gem1 gem2 - gem
+              robot1 robot2 - agent
+    )
     (:init
-        (= (xloc carrot1) 7)
-        (= (yloc carrot1) 8)
-        (= (xloc onion1) 5)
-        (= (yloc onion1) 5)
+        (= (xloc gem1) 7)
+        (= (yloc gem1) 8)
+        (= (xloc gem2) 5)
+        (= (yloc gem2) 5)
         (= (walls) 
             (transpose (bit-mat 
                 (bit-vec 0 0 0 0 0 0 0 0 0 0)
@@ -21,8 +21,10 @@
                 (bit-vec 0 1 0 0 0 0 1 1 0 1)
                 (bit-vec 0 0 0 0 0 0 0 0 0 0)))
         )
-        (= (xpos) 1)
-        (= (ypos) 1)
+        (= (xloc robot1) 1)
+        (= (yloc robot1) 1)
+        (= (xloc robot2) 9)
+        (= (yloc robot2) 9)
     )
-    (:goal (has carrot1))
+    (:goal (has robot1 gem1)) ; the agents have collected all gems
 )

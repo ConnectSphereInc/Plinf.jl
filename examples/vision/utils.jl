@@ -3,12 +3,11 @@ using PDDLViz: RGBA, to_color, set_alpha
 using Base: @kwdef
 import SymbolicPlanners: compute, get_goal_terms
 
-"Converts an (x, y) position to a corresponding goal term."
-pos_to_terms(pos::Tuple{Int, Int}) =
-    [parse_pddl("(== (xpos) $(pos[1]))"), parse_pddl("(== (ypos) $(pos[2]))")]
-
-"Gets the (x, y) position of the agent."
-get_agent_pos(state::State) = (state[pddl"(xpos)"], state[pddl"(ypos)"])
+"Gets the (x, y) position of the specified agent."
+function get_agent_pos(state::State, agent::Symbol)
+    return (state[Compound(:xloc, Term[Const(agent)])],
+            state[Compound(:yloc, Term[Const(agent)])])
+end
 
 "Gets the (x, y) location of an object."
 get_obj_loc(state::State, obj::Const) =
@@ -22,7 +21,10 @@ collecting all goal objects by computing the distance between all goal objects
 and the agent, then returning the minimum distance plus the number of remaining
 goals to satisfy.
 """
-struct GoalManhattan <: Heuristic end
+struct GoalManhattan <: Heuristic 
+    agent::Symbol
+end
+
 
 function compute(heuristic::GoalManhattan,
                  domain::Domain, state::State, spec::Specification)
@@ -33,7 +35,7 @@ function compute(heuristic::GoalManhattan,
     goal_objs = [g.args[1] for g in goals if g.name == :has && !state[g]]
     isempty(goal_objs) && return goal_count
     # Compute minimum distance to goal objects
-    pos = get_agent_pos(state)
+    pos = get_agent_pos(state, heuristic.agent)
     min_dist = minimum(goal_objs) do obj
         loc = get_obj_loc(state, obj)
         sum(abs.(pos .- loc))
@@ -372,4 +374,27 @@ function storyboard_goal_lines!(
     rowsize!(storyboard.layout, n_rows+1, Auto(0.25))
     resize!(storyboard, (width, height * 1.3))
     return storyboard
+end
+
+function extract_items_from_spec(spec::Specification)
+    goals = spec isa MinStepsGoal ? spec.terms : spec.terms
+    goals = goals isa Vector && length(goals) == 1 ? goals[1] : goals
+    subgoals = goals isa Term && goals.name == :or ? goals.args :
+               goals isa Vector ? goals : [goals]
+    
+    return [subgoal.args[2].name for subgoal in subgoals 
+            if subgoal isa Term && subgoal.name == :has && length(subgoal.args) == 2]
+end
+
+function create_visibility_spec(agent, items)
+    subgoals = [Compound(:visible, Term[Const(agent), Const(item)]) for item in items]
+    return Specification(Compound(:or, subgoals))
+end
+
+function search_for_visibility(planner, domain, state, spec)
+    node = PathNode(hash(state), state, 0.0, LinkedNodeRef(hash(state)))
+    search_tree = Dict(node.id => node)
+    sol = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
+                             0, search_tree, [node.id], UInt[])
+    search!(sol, planner, domain, simplify_goal(spec, domain, state), state)
 end
