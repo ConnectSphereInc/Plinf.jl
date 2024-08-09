@@ -8,7 +8,7 @@
         (= (yloc gem1) 13)
         (= (xloc gem2) 7)
         (= (yloc gem2) 7)
-        (= (xloc gem3) 12)
+        (= (xloc gem3) 11)
         (= (yloc gem3) 3)
         (= (walls) 
             (transpose (bit-mat 

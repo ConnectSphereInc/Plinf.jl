@@ -18,7 +18,8 @@
         :precondition (and (not (has ?a ?i)) (= (xloc ?a) (xloc ?i)) (= (yloc ?a) (yloc ?i)))
         :effect (and (has ?a ?i) (offgrid ?i)
                         (assign (xloc ?i) -10) (assign (yloc ?i) -10)
-                        (not (visible ?a ?i)))  ; assuming ?i instead of ?o for the item
+                        (not (visible ?a ?i))
+                        (forall (?agent - agent) (not (visible ?agent ?i))))
         )
 
         (:action communicate

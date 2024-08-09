@@ -420,3 +420,20 @@ function create_plan(planner, domain, state, remaining_items, agent)
         return []  # Return an empty plan in case of error
     end
 end
+
+function leads_to_recent_position(domain::Domain, state::State, action::Term, recent_positions::Vector{Tuple{Int, Int}}, memory_length::Int = 3)
+    next_state = PDDL.transition(domain, state, action)
+    agent = action.args[1].name
+    next_pos = get_agent_pos(next_state, agent)
+    
+    # Check if the next position is in the list of recent positions
+    return any(pos -> pos == next_pos, recent_positions[max(1, end-memory_length+1):end])
+end
+
+function update_recent_positions(recent_positions::Vector{Tuple{Int, Int}}, new_pos::Tuple{Int, Int}, max_length::Int = 10)
+    push!(recent_positions, new_pos)
+    if length(recent_positions) > max_length
+        popfirst!(recent_positions)
+    end
+    return recent_positions
+end
