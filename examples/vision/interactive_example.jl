@@ -17,34 +17,46 @@ global t
 
 PDDL.Arrays.register!()
 domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
-problem::Problem = load_problem(joinpath(@__DIR__, "problems", "problem-2.pddl"))
+problem::Problem = load_problem(joinpath(@__DIR__, "problems", "problem-5.pddl"))
 state = initstate(domain, problem)
 spec = Specification(problem)
 domain, state = PDDL.compiled(domain, state)
+items = [obj.name for obj in PDDL.get_objects(domain, state, :gem)]
+agents = Symbol[obj.name for obj in PDDL.get_objects(domain, state, :agent)]
 
 # Construct gridworld renderer
 renderer = PDDLViz.GridworldRenderer(
     resolution = (600,1100),
     has_agent = false,
     obj_renderers = Dict(
-        :agent => (d, s, o) -> RobotGraphic(),
-        :gem => (d, s, o) -> GemGraphic(color = :yellow)
+        :agent => (d, s, o) -> MultiGraphic(
+            RobotGraphic(color = :slategray),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
+        :gem => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :yellow),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
     ),
     show_inventory = true,
     inventory_fns = [
-        (d, s, o) -> s[Compound(:has, [Const(:robot1), o])]
-        (d, s, o) -> s[Compound(:has, [Const(:robot2), o])]
-
+        (d, s, o) -> s[Compound(:has, [Const(agent), o])] for agent in agents
     ],
-    inventory_types = [:item, :item],
-    inventory_labels = ["Robot1 Inventory", "Robot2 Inventory"],
+    inventory_types = [:item for agent in agents],
+    inventory_labels = ["$agent Inventory" for agent in agents],
     show_vision = true,
     vision_fns = [
-        (d, s, o) -> s[Compound(:visible, [Const(:robot1), o])],
-        (d, s, o) -> s[Compound(:visible, [Const(:robot2), o])],
+
+        (d, s, o) -> s[Compound(:visible, [Const(agent), o])] for agent in agents
     ],
-    vision_types = [:object, :object],
-    vision_labels = ["Robot1 Vision", "Robot2 Vision"],
+    vision_types = [:object for agent in agents],
+    vision_labels = ["$agent Vision" for agent in agents],
     obj_type_z_order = [:gem, :agent],
 )
 canvas = renderer(domain, state)
@@ -59,8 +71,7 @@ end
 println("Saving initial state to file")
 save(output_folder*"/initial_state.png", canvas)
 
-items = [obj.name for obj in PDDL.get_objects(domain, state, :gem)]
-agents = Symbol[obj.name for obj in PDDL.get_objects(domain, state, :agent)]
+
 remaining_items = copy(items)
 planners = [
     TwoStagePlanner(
@@ -83,14 +94,13 @@ while !isempty(remaining_items) && t <= t_max
 
     for (i, agent) in enumerate(agents)
         if isempty(agent_plans[i])
-            # Replan if the agent has no more actions
             agent_plans[i] = create_plan(planners[i], domain, current_state, remaining_items, agent)
         end
         
         if !isempty(agent_plans[i])
             action = first(agent_plans[i])
             
-            # Check if the action is a pickup and if the item is still available
+            # Check if pickup action is valid
             if action.name == :pickup
                 item = action.args[2].name
                 if !(item in remaining_items)
@@ -100,35 +110,33 @@ while !isempty(remaining_items) && t <= t_max
                 end
             end
             
-            # Apply the action
+            # Remove and apply the action
             action = popfirst!(agent_plans[i])
-            if action !== nothing
-                current_state = PDDL.transition(domain, current_state, action)
-                push!(full_plan, action)
-                println(action.name)
-                if action.name == :communicate
-                    println("Step $t: Agent $agent communicated with $(action.args[1].name)")
-                    # if other agent has a visible gem follow, if not go in a different direction
-                    utterance = utterance_model(agent, domain, current_state)
-                    println("Agent $agent: $utterance")
-                end
-
-                if action.name == :pickup
-                    item = action.args[2].name
-                    println("Step $t: Agent $agent picked up $item")
-                    remaining_items = get_offgrid_items(current_state)
-                    
-                    # Replan for all agents
-                    if !isempty(remaining_items)
-                        for (j, other_agent) in enumerate(agents)
-                            agent_plans[j] = create_plan(planners[j], domain, current_state, remaining_items, other_agent)
-                        end
+            current_state = PDDL.transition(domain, current_state, action)
+            push!(full_plan, action)
+    
+            # Handle specific actions (communicate, pickup)
+            if action.name == :communicate
+                println("Step $t: $agent communicated with $(action.args[2].name).")
+                utterance = utterance_model(agent, domain, current_state)
+                println("       $agent: $utterance")
+            elseif action.name == :pickup
+                item = action.args[2].name
+                println("Step $t: $agent picked up $item.")
+                remaining_items = get_offgrid_items(current_state)
+               
+                # Replan for all agents if there are remaining items
+                if !isempty(remaining_items)
+                    for (j, other_agent) in enumerate(agents)
+                        agent_plans[j] = create_plan(planners[j], domain, current_state, remaining_items, other_agent)
                     end
                 end
             end
+        else
+            println("Agent $agent has no plan. Replanning...")
+            agent_plans[i] = create_plan(planners[i], domain, current_state, remaining_items, agent)
         end
     end
-    
     t += 1
 end
 

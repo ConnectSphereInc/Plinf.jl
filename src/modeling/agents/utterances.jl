@@ -34,7 +34,7 @@ end
 """
 Samples a goal and an utterance given a State.
 """
-@gen function utterance_model(agent::String, domain::Domain, state::State)
+@gen function utterance_model(agent::Symbol, domain::Domain, state::State)
 
     items = PDDL.get_objects(domain, state, :item)
     item_visibilities = Dict(item => PDDL.satisfy(domain, state, pddl"(visible $agent $item)") for item in items)

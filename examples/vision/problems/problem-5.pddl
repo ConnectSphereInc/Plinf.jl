@@ -9,7 +9,7 @@
         (= (xloc gem2) 7)
         (= (yloc gem2) 7)
         (= (xloc gem3) 12)
-        (= (yloc gem3) 2)
+        (= (yloc gem3) 3)
         (= (walls) 
             (transpose (bit-mat 
                 (bit-vec 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)

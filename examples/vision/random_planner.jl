@@ -129,7 +129,6 @@ function expand!(
     if isempty(available_actions)
         return  # Return if there is no direction to proceed
     end
-    println("Available actions: ", available_actions)
     # Check if the communicate action is available
     communicate_action = findfirst(act -> act.name == :communicate, available_actions)
     if communicate_action !== nothing
