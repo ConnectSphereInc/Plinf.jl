@@ -7,22 +7,46 @@ using Random
 
 @dist labeled_uniform(labels) = labels[uniform_discrete(1, length(labels))]
 
-gpt3_mixture = GPT3GF(model="davinci-002", stop="\n", max_tokens=512, temperature=1)
+gpt3 = GPT3GF(model="davinci-002", stop="\n", max_tokens=512, temperature=1)
 
-COMMAND_EXAMPLES = [
+EXAMPLES = [
     ("Visible: gem", "I see a gem!"),
-    ("Visible: nothing", "I'm exploring"),
+    ("Visible: none", "I'm exploring."),
     ("Visible: gem", "I can see a gem!"),
-    ("Visible: nothing", "I can't see one yet"),
+    ("Visible: none", "I can't see one yet."),
+    ("Visible: none", "I don't see anything."),
+    ("Visible: gem", "There's a gem this way!"),
+    ("Visible: gem", "I see a gem nearby."),
+    ("Visible: gem", "A gem is in sight!"),
+    ("Visible: gem", "I found a gem!"),
+    ("Visible: none", "I'm still looking."),
+    ("Visible: gem", "There's a gem over here!"),
+    ("Visible: none", "No gems in view."),
+    ("Visible: gem", "I spotted a gem!"),
+    ("Visible: none", "I don't see anything yet."),
+    ("Visible: gem", "A gem is ahead!"),
+    ("Visible: gem", "Another gem is nearby."),
+    ("Visible: none", "I'm still exploring."),
+    ("Visible: gem", "A gem is visible!"),
+    ("Visible: none", "No gems in sight at the moment."),
+    ("Visible: none", "The search continues."),
+    ("Visible: none", "Still on the lookout."),
+    ("Visible: none", "No precious stones visible yet."),
+    ("Visible: none", "The area seems empty of gems."),
+    ("Visible: none", "Nothing shiny catches my eye."),
+    ("Visible: none", "I'm scanning the area, but no gems so far."),
+    ("Visible: none", "The hunt for gems goes on."),
+    ("Visible: none", "No sign of any gems here."),
+    ("Visible: none", "I'm keeping my eyes peeled, but nothing yet.")
 ]
 
-# Random.seed!(0)
-shuffle!(COMMAND_EXAMPLES)
+Random.seed!(0)
+shuffle!(EXAMPLES)
 
-function construct_utterance_prompt(context::String, examples = COMMAND_EXAMPLES)
-    example_strs = ["Context: $ctx\nOutput: $utt" for (ctx, utt) in examples]
-    example_str = join(example_strs, "\n\n")
-    prompt = "$example_str\n\nContext: $context\nOutput:"
+function construct_utterance_prompt(context::String, examples = EXAMPLES)
+    example_strs = ["$vis\nUtterance: $utt" for (vis, utt) in examples]
+    example_str = join(example_strs, "\n")
+    prompt = "$example_str\n$context\nUtterance:"
     return prompt
 end
 
@@ -34,26 +58,20 @@ end
 """
 Samples a goal and an utterance given a State.
 """
-@gen function utterance_model(agent::Symbol, domain::Domain, state::State)
+@gen function utterance_model()
 
-    items = PDDL.get_objects(domain, state, :item)
-    item_visibilities = Dict(item => PDDL.satisfy(domain, state, pddl"(visible $agent $item)") for item in items)
+    gem_visible = {:gem_visible} ~ Gen.bernoulli(0.5)
 
-    visible_items = [item.name for (item, visible) in item_visibilities if visible]
-    if isempty(visible_items)
-        context = "Visible objects: None"
+    if gem_visible
+        context = "Visible: gem"
     else
-        context = "Visible objects: " * join(visible_items, ", ")
+        context = "Visible: none"
     end
-    # Generate utterance based on goal and context
-    prompts = construct_utterance_prompt(context)
-    utterance ~ gpt3_mixture(prompts)
-
+    
+    prompt = construct_utterance_prompt(context)
+    utterance ~ gpt3(prompt)
     return utterance
 end
-
-
-
 
 """
 Samples a goal and an utterance given a State.
@@ -100,7 +118,7 @@ Samples a goal and an utterance given a State.
     prob_sum = sum(values(item_goal_probs))
     @assert isapprox(prob_sum, 1.0, atol=1e-10) "Probabilities do not sum to 1"
     goal ~ labeled_cat(goals, goal_probs)
-    visible_items = [item.name for (item, visible) in item_visibilities if visible]
+    visible_items = [replace(item.name, r"\d+$" => "") for (item, visible) in item_visibilities if visible]
     if isempty(visible_items)
         context = "Visible objects: None"
     else

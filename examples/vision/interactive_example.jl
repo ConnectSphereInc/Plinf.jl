@@ -24,6 +24,7 @@ domain, state = PDDL.compiled(domain, state)
 items = [obj.name for obj in PDDL.get_objects(domain, state, :gem)]
 agents = Symbol[obj.name for obj in PDDL.get_objects(domain, state, :agent)]
 
+gridworld_only = false
 # Construct gridworld renderer
 renderer = PDDLViz.GridworldRenderer(
     resolution = (600,1100),
@@ -44,13 +45,13 @@ renderer = PDDLViz.GridworldRenderer(
             )
         ),
     ),
-    show_inventory = true,
+    show_inventory = !gridworld_only,
     inventory_fns = [
         (d, s, o) -> s[Compound(:has, [Const(agent), o])] for agent in agents
     ],
     inventory_types = [:item for agent in agents],
     inventory_labels = ["$agent Inventory" for agent in agents],
-    show_vision = true,
+    show_vision = !gridworld_only,
     vision_fns = [
 
         (d, s, o) -> s[Compound(:visible, [Const(agent), o])] for agent in agents
@@ -107,11 +108,21 @@ while !isempty(remaining_items) && t <= t_max
                 println("Step $t: $agent picked up $item.")
                 remaining_items = filter(x -> x != item, remaining_items)
             elseif action.name == :communicate
-                println("Step $t: $agent communicated with $(action.args[2].name).")
-                utterance = utterance_model(agent, domain, current_state)
-                println("       $agent: $utterance")
-            else
-                # println("Step $t: $agent performed action: $action")
+                println("Step $t: $agent sees $(action.args[2].name) and makes an utterance.")
+
+                # Check if the agent actually sees a gem
+                items_visible = !isempty([item.name for item in PDDL.get_objects(domain, state, :item) if PDDL.satisfy(domain, state, pddl"(visible $agent $item)")])
+
+                # Generate an utterance based on item visibility
+                (tr, _) = generate(utterance_model, (), Gen.choicemap(:gem_visible => items_visible))
+                utterance = get_retval(tr)
+                println("       $agent utters $utterance")
+
+                # Listening agent infers if the agent can see a gem based on their utterance
+                traces, weights = Gen.importance_sampling(utterance_model, (), Gen.choicemap(:output => utterance), 2)
+                inferred_sees_gem, _ = get_most_likely(traces, weights)
+
+                println("       $(action.args[2].name) thinks $agent $(inferred_sees_gem ? "can" : "can not") see a gem.")
             end
         else
             println("Step $t: Agent $agent couldn't find a valid move.")

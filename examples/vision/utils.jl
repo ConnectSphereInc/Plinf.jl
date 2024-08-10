@@ -437,3 +437,46 @@ function update_recent_positions(recent_positions::Vector{Tuple{Int, Int}}, new_
     end
     return recent_positions
 end
+
+"Print inferred probabilities for each instruction, given traces and weights."
+function print_probs(traces, weights)
+    probs = Dict{Bool, Float64}()
+    for (tr, w) in zip(traces, weights)
+        gem_visible = tr[:gem_visible]
+        p = get(probs, gem_visible, 0.0)
+        probs[gem_visible] = p + exp(w)
+    end
+    for (i, p) in probs
+        print("Gem Visible: ", i)
+        println()
+        println("Probability: ", round(p, digits=2))
+    end    
+end
+
+function get_most_likely(traces, weights, verbose=false)
+    probs = Dict{Bool, Float64}()
+    for (tr, w) in zip(traces, weights)
+        gem_visible = tr[:gem_visible]
+        p = get(probs, gem_visible, 0.0)
+        probs[gem_visible] = p + exp(w)
+    end
+    
+    # Normalize probabilities
+    total = sum(values(probs))
+    for k in keys(probs)
+        probs[k] /= total
+    end
+    
+    # Find the most likely probability
+    most_likely = argmax(probs)
+    
+    # Print probabilities
+    if verbose
+        for (i, p) in probs
+            println("Gem Visible: $i")
+            println("Probability: $(round(p, digits=4))")
+        end
+    end
+    
+    return most_likely, probs[most_likely]
+end
