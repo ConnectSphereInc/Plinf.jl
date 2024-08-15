@@ -17,6 +17,7 @@ mutable struct SingleStepVisionPlanner <: Planner
     visited_positions::CircularBuffer{Tuple{Int, Int}}
     max_history::Int
     recency_weight::Float64
+    believed_gem_position::Union{Nothing, Tuple{Int, Int}}
 
     function SingleStepVisionPlanner(;
         max_nodes::Int=typemax(Int),
@@ -32,7 +33,7 @@ mutable struct SingleStepVisionPlanner <: Planner
     )
         new(max_nodes, max_time, save_search, save_search_order, verbose, callback,
             alternative_planner, agent, CircularBuffer{Tuple{Int, Int}}(max_history),
-            max_history, recency_weight)
+            max_history, recency_weight, nothing)
     end
 end
 
@@ -48,7 +49,7 @@ function (planner::SingleStepVisionPlanner)(domain::Domain, state::State, goal::
 end
 
 function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, spec::Specification)
-    @unpack save_search, agent, alternative_planner, max_history, recency_weight = planner
+    @unpack save_search, agent, alternative_planner, max_history, recency_weight, believed_gem_position = planner
     
     items = extract_items_from_spec(spec)
     available_actions = collect(PDDL.available(domain, state))
@@ -56,7 +57,6 @@ function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, s
     current_pos = get_agent_pos(state, agent)
     push!(planner.visited_positions, current_pos)
 
-    # Function to safely check if an action belongs to the agent
     function is_agent_action(act)
         try
             return act.args[1].name == agent
@@ -65,7 +65,6 @@ function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, s
         end
     end
 
-    # Safely filter agent actions
     agent_actions = filter(is_agent_action, available_actions)
 
     # Check for communication actions
@@ -78,12 +77,36 @@ function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, s
     # Check for visible items
     visible_items = filter(item -> PDDL.satisfy(domain, state, pddl"(visible $agent $item)"), items)
     if !isempty(visible_items)
-        # Manually create the subgoal PDDL term
         item = first(visible_items)
         subgoal = PDDL.parse_pddl("(has $agent $item)")
         a_star_sol = alternative_planner(domain, state, subgoal)
         if !isempty(a_star_sol.plan)
             return create_single_step_solution(planner, domain, state, first(a_star_sol.plan), save_search)
+        end
+    end
+
+    # If we have a believed gem position, plan to that location
+    if !isnothing(believed_gem_position)
+        target_x, target_y = believed_gem_position
+        subgoal = PDDL.parse_pddl("(and (= (xloc $agent) $target_x) (= (yloc $agent) $target_y))")
+        a_star_sol = alternative_planner(domain, state, subgoal)
+        if !isempty(a_star_sol.plan)
+            next_action = first(a_star_sol.plan)
+            next_state = PDDL.transition(domain, state, next_action)
+            next_pos = get_agent_pos(next_state, agent)
+            
+            # If we've reached the believed position, check for a gem
+            if next_pos == believed_gem_position
+                pickup_actions = filter(act -> act.name == :pickup, agent_actions)
+                if !isempty(pickup_actions)
+                    return create_single_step_solution(planner, domain, state, first(pickup_actions), save_search)
+                else
+                    # If no gem found, reset the belief and continue random search
+                    planner.believed_gem_position = nothing
+                end
+            else
+                return create_single_step_solution(planner, domain, state, next_action, save_search)
+            end
         end
     end
 

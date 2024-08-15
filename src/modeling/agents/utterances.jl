@@ -194,10 +194,10 @@ function enum_inference(utterance, grid_size_x, grid_size_y)
         end
     end
     # Gem is not visible
-    tr, w = generate(utterance_model_global, (), 
-                     choicemap(:partners_gem_visible => false, :output => utterance))
-    push!(traces, tr)
-    push!(weights, w)
+    # tr, w = generate(utterance_model_global, (), 
+    #                  choicemap(:partners_gem_visible => false, :output => utterance))
+    # push!(traces, tr)
+    # push!(weights, w)
     
     return traces, weights
 end

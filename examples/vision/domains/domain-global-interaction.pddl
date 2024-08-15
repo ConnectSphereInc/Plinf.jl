@@ -9,6 +9,8 @@
         (offgrid ?i - item)
         (visible ?a - agent ?o - object)
         (communicated ?a - agent ?i)
+        (goal-item ?a - agent ?i - item)  ; New predicate
+
     )
     (:functions
         (xloc ?o - object) (yloc ?o - object) - integer
@@ -26,13 +28,14 @@
         (:action communicate
         :parameters (?a1 ?a2 - agent ?i - item)
         :precondition (and 
-                (visible ?a1 ?i)
-                (not (visible ?a2 ?i))
-                (not (= ?a1 ?a2))
-                (not (communicated ?a1 ?i))
+            (visible ?a1 ?i)
+            (not (visible ?a2 ?i))
+            (not (= ?a1 ?a2))
+            (not (communicated ?a1 ?i))
+            (goal-item ?a2 ?i)  ; New precondition
         )
         :effect ( and
-                (visible ?a2 ?i)
+                ; (visible ?a2 ?i)
                 (communicated ?a1 ?i)
         )
         )

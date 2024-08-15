@@ -25,6 +25,8 @@
         (= (yloc robot1) 1)
         (= (xloc robot2) 9)
         (= (yloc robot2) 9)
+        (goal-item robot1 gem1)
+        (goal-item robot2 gem2)
     )
     (:goal (and (has robot1 gem1) (has robot2 gem2)))
 )

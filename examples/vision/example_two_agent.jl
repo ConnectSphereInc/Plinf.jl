@@ -100,7 +100,6 @@ all_actions = []
 t_max = 100  # Set a maximum number of timesteps
 t = 1
 
-# iterate over each time step
 while !isempty(remaining_items) && t <= t_max
     global remaining_items, current_state, t
 
@@ -133,12 +132,20 @@ while !isempty(remaining_items) && t <= t_max
                 println("       $caller utters: $utterance")
 
                 # Listening agent infers if the agent can see a gem based on their utterance
-                traces, weights = enum_inference(utterance, 10, 10)
+                traces, weights = enum_inference(utterance, 10, 10)  # Adjust grid size if needed
                 (gem_x_pos_belief, gem_y_pos_belief), _ = get_most_likely_global(traces, weights)
                 println("       $callee thinks the gem is at position ($gem_x_pos_belief, $gem_y_pos_belief).")
                 
-                # Goal of the other agent is not 
+                # Update the planner's believed gem position for the listening agent
+                callee_index = findfirst(a -> a == Symbol(callee), agents)
+                planners[callee_index].believed_gem_position = (gem_x_pos_belief, gem_y_pos_belief)
+            elseif action.name == :pickup
+                # If a pickup action is successful, reset the believed gem position
+                planners[i].believed_gem_position = nothing
             end
+        else
+            # If the planner fails (e.g., reaches believed position but no gem), reset the belief
+            planners[i].believed_gem_position = nothing
         end
     end
 
