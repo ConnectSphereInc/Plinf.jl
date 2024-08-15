@@ -117,9 +117,27 @@ while !isempty(remaining_items) && t <= t_max
             if action.name == :communicate
                 caller = agent
                 callee = action.args[2].name
-                found_item = action.args[3].name
+                found_gem = action.args[3].name
+                gem_x_pos, gem_y_pos = get_agent_pos(current_state, found_gem)
                 println("Step $t:")
-                println("       $caller found $found_item and tells $callee.")
+                println("       $caller found $found_gem at ($gem_x_pos, $gem_y_pos) and tells $callee.")
+
+                # Generate an utterance based on item visibility
+                constraints = Gen.choicemap()
+                constraints[:partners_gem_visible] = true
+                constraints[:gem_x_pos] = gem_x_pos
+                constraints[:gem_y_pos] = gem_y_pos
+
+                (tr, _) = generate(utterance_model_global, (), constraints)
+                utterance = get_retval(tr)
+                println("       $caller utters: $utterance")
+
+                # Listening agent infers if the agent can see a gem based on their utterance
+                traces, weights = enum_inference(utterance, 10, 10)
+                (gem_x_pos_belief, gem_y_pos_belief), _ = get_most_likely_global(traces, weights)
+                println("       $callee thinks the gem is at position ($gem_x_pos_belief, $gem_y_pos_belief).")
+                
+                # Goal of the other agent is not 
             end
         end
     end

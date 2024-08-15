@@ -463,3 +463,43 @@ function get_most_likely(traces, weights, verbose=false)
     
     return most_likely, probs[most_likely]
 end
+
+function get_most_likely_global(traces, weights, verbose=false)
+    probs = Dict{Tuple{Int, Int}, Float64}()
+    for (tr, w) in zip(traces, weights)
+        if tr[:partners_gem_visible]
+            x = tr[:gem_x_pos]
+            y = tr[:gem_y_pos]
+            pos = (x, y)
+            p = get(probs, pos, 0.0)
+            probs[pos] = p + exp(w)
+        else
+            pos = (0, 0)  # Represent "no gem visible" as (0, 0)
+            p = get(probs, pos, 0.0)
+            probs[pos] = p + exp(w)
+        end
+    end
+    
+    # Normalize probabilities
+    total = sum(values(probs))
+    for k in keys(probs)
+        probs[k] /= total
+    end
+    
+    # Find the most likely position
+    most_likely = argmax(probs)
+    
+    # Print probabilities
+    if verbose
+        for (pos, p) in sort(collect(probs), by=x->x[2], rev=true)
+            if pos == (0, 0)
+                println("Gem Not Visible")
+            else
+                println("Gem Position: $pos")
+            end
+            println("Probability: $(round(p, digits=4))")
+        end
+    end
+    
+    return most_likely, probs[most_likely]
+end
