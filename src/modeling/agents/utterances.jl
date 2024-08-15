@@ -70,7 +70,7 @@ Samples a goal and an utterance given a State.
     
     prompt = construct_utterance_prompt(context)
     utterance ~ gpt3(prompt)
-    return utterance
+    return strip(utterance)
 end
 
 """

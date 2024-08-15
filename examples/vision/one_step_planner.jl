@@ -3,6 +3,7 @@ using Parameters: @unpack
 using SymbolicPlanners, Plinf
 using SymbolicPlanners: PathNode, simplify_goal, LinkedNodeRef, @auto_hash, @auto_equals, reconstruct
 using PDDL
+using DataStructures: CircularBuffer
 
 mutable struct SingleStepVisionPlanner <: Planner
     max_nodes::Int
@@ -13,13 +14,25 @@ mutable struct SingleStepVisionPlanner <: Planner
     callback::Union{Nothing, Function}
     alternative_planner::Union{Nothing, Planner}
     agent::Symbol
-    recent_positions::Dict{Symbol, Vector{Tuple{Int, Int}}}
-    memory_length::Int
+    visited_positions::CircularBuffer{Tuple{Int, Int}}
+    max_history::Int
+    recency_weight::Float64
 
-    function SingleStepVisionPlanner(;max_nodes::Int=typemax(Int), max_time::Float64=Inf,
-                  save_search::Bool=false, agent::Symbol=:nothing, alternative_planner=AStarPlanner(GoalManhattan(), save_search=true), save_search_order::Bool=save_search,
-                  verbose::Bool=false, callback::Union{Nothing, Function}=verbose ? LoggerCallback() : nothing, memory_length::Int=5)
-        new(max_nodes, max_time, save_search, save_search_order, verbose, callback, alternative_planner, agent, Dict{Symbol, Vector{Tuple{Int, Int}}}(), memory_length)
+    function SingleStepVisionPlanner(;
+        max_nodes::Int=typemax(Int),
+        max_time::Float64=Inf,
+        save_search::Bool=false,
+        agent::Symbol=:agent,
+        alternative_planner=AStarPlanner(GoalManhattan(), save_search=true),
+        save_search_order::Bool=save_search,
+        verbose::Bool=false,
+        callback::Union{Nothing, Function}=verbose ? LoggerCallback() : nothing,
+        max_history::Int=50,
+        recency_weight::Float64=0.9
+    )
+        new(max_nodes, max_time, save_search, save_search_order, verbose, callback,
+            alternative_planner, agent, CircularBuffer{Tuple{Int, Int}}(max_history),
+            max_history, recency_weight)
     end
 end
 
@@ -35,18 +48,13 @@ function (planner::SingleStepVisionPlanner)(domain::Domain, state::State, goal::
 end
 
 function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, spec::Specification)
-    @unpack save_search, agent, alternative_planner, memory_length = planner
+    @unpack save_search, agent, alternative_planner, max_history, recency_weight = planner
     
     items = extract_items_from_spec(spec)
     available_actions = collect(PDDL.available(domain, state))
     
-    # Initialize recent positions for this agent if not already present
-    if !haskey(planner.recent_positions, agent)
-        planner.recent_positions[agent] = Vector{Tuple{Int, Int}}()
-    end
-    
     current_pos = get_agent_pos(state, agent)
-    planner.recent_positions[agent] = update_recent_positions(planner.recent_positions[agent], current_pos)
+    push!(planner.visited_positions, current_pos)
 
     # Function to safely check if an action belongs to the agent
     function is_agent_action(act)
@@ -79,23 +87,54 @@ function solve(planner::SingleStepVisionPlanner, domain::Domain, state::State, s
         end
     end
 
-    # If no items are visible or A* failed, take a random move action without revisiting recent positions
+    # If no items are visible or A* failed, take a move action based on recency-weighted probabilities
     move_actions = filter(act -> act.name in [:up, :down, :left, :right], agent_actions)
     if !isempty(move_actions)
-        valid_actions = filter(act -> !leads_to_recent_position(domain, state, act, planner.recent_positions[agent], memory_length), move_actions)
-        
-        if !isempty(valid_actions)
-            chosen_action = rand(valid_actions)
-        else
-            # If all actions lead to recent positions, choose any random action
-            chosen_action = rand(move_actions)
-        end
-        
+        chosen_action = choose_recency_weighted_action(planner, domain, state, move_actions)
         return create_single_step_solution(planner, domain, state, chosen_action, save_search)
     end
 
     # If no actions are available, return a failure
     return NullSolution(:failure)
+end
+
+function choose_recency_weighted_action(planner::SingleStepVisionPlanner, domain::D, state::S, move_actions::Vector{T}) where {D, S, T}
+    @unpack agent, visited_positions, recency_weight, max_history = planner
+    
+    # Calculate weights for each action
+    weights = Float64[]
+    for action in move_actions
+        next_state = PDDL.transition(domain, state, action)
+        next_pos = get_agent_pos(next_state, agent)
+        
+        if next_pos in visited_positions
+            index = findfirst(pos -> pos == next_pos, visited_positions)
+            # Exponential decay based on recency, with a stronger penalty for recent visits
+            weight = recency_weight^(3 * (length(visited_positions) - index) / max_history)
+        else
+            # Strongly favor unvisited positions
+            weight = 10.0
+        end
+        
+        push!(weights, weight)
+    end
+    
+    # Normalize weights
+    total_weight = sum(weights)
+    normalized_weights = weights ./ total_weight
+    
+    # Choose action based on weighted probabilities
+    r = rand()
+    cumulative_weight = 0.0
+    for (i, weight) in enumerate(normalized_weights)
+        cumulative_weight += weight
+        if r <= cumulative_weight
+            return move_actions[i]
+        end
+    end
+    
+    # Fallback to last action (should rarely happen due to floating-point precision)
+    return move_actions[end]
 end
 
 function create_single_step_solution(planner::SingleStepVisionPlanner, domain::Domain, state::State, action::Term, save_search::Bool)
@@ -129,6 +168,7 @@ function Base.copy(planner::SingleStepVisionPlanner)
         callback = planner.callback,
         alternative_planner = isnothing(planner.alternative_planner) ? nothing : copy(planner.alternative_planner),
         agent = planner.agent,
-        memory_length = planner.memory_length
+        max_history = planner.max_history,
+        recency_weight = planner.recency_weight
     )
 end

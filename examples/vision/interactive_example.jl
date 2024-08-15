@@ -72,7 +72,6 @@ end
 println("Saving initial state to file")
 save(output_folder*"/initial_state.png", canvas)
 
-
 remaining_items = copy(items)
 planners = [
     SingleStepVisionPlanner(
@@ -82,6 +81,8 @@ planners = [
     ) 
     for agent in agents
 ]
+
+following = Dict{Symbol, Union{Nothing, Symbol}}(agent => nothing for agent in agents)
 
 current_state = state
 full_plan = []
@@ -93,10 +94,31 @@ while !isempty(remaining_items) && t <= t_max
     global remaining_items, current_state, t
 
     for (i, agent) in enumerate(agents)
-        goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
-        goal = PDDL.parse_pddl(goal_str)
-        
-        solution = planners[i](domain, current_state, goal)
+        if isnothing(following[agent])
+            # If not following anyone, use the original goal
+            goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
+            goal = PDDL.parse_pddl(goal_str)
+            solution = planners[i](domain, current_state, goal)
+        else
+            # If following another agent, set the goal to their current position
+            followed_agent = following[agent]
+            followed_pos = get_agent_pos(current_state, followed_agent)
+            agent_pos = get_agent_pos(current_state, agent)
+            
+            goal = PDDL.Compound(:and, [
+                PDDL.Compound(:(==), [PDDL.Compound(:xloc, [PDDL.Const(agent)]), PDDL.Const(followed_pos[1])]),
+                PDDL.Compound(:(==), [PDDL.Compound(:yloc, [PDDL.Const(agent)]), PDDL.Const(followed_pos[2])])
+            ])
+            a_star_planner = AStarPlanner(GoalManhattan(agent), save_search=true)
+            solution = a_star_planner(domain, current_state, goal)
+            
+            # If A* fails to find a path, stop following
+            if solution.status != :success
+                following[agent] = nothing
+                println("       $agent stops following $(followed_agent) due to unreachable position.")
+                continue
+            end
+        end
         
         if solution.status == :success && !isempty(solution.plan)
             action = first(solution.plan)
@@ -105,27 +127,50 @@ while !isempty(remaining_items) && t <= t_max
 
             if action.name == :pickup
                 item = action.args[2].name
-                println("Step $t: $agent picked up $item.")
+                println("Step $t:")
+                println("       $agent picked up $item.")
                 remaining_items = filter(x -> x != item, remaining_items)
+                following[agent] = nothing  # Stop following after picking up an item
             elseif action.name == :communicate
-                println("Step $t: $agent sees $(action.args[2].name) and makes an utterance.")
+                communicator = agent
+                listener = action.args[2].name
+                println("Step $t:")
+                println("       $communicator sees $listener and makes an utterance.")
 
                 # Check if the agent actually sees a gem
-                items_visible = !isempty([item.name for item in PDDL.get_objects(domain, state, :item) if PDDL.satisfy(domain, state, pddl"(visible $agent $item)")])
+                items_visible = !isempty([item.name for item in PDDL.get_objects(domain, current_state, :item) if PDDL.satisfy(domain, current_state, pddl"(visible $communicator $item)")])
 
                 # Generate an utterance based on item visibility
                 (tr, _) = generate(utterance_model, (), Gen.choicemap(:gem_visible => items_visible))
                 utterance = get_retval(tr)
-                println("       $agent utters $utterance")
+                println("       $communicator utters: $utterance")
 
                 # Listening agent infers if the agent can see a gem based on their utterance
                 traces, weights = Gen.importance_sampling(utterance_model, (), Gen.choicemap(:output => utterance), 2)
-                inferred_sees_gem, _ = get_most_likely(traces, weights)
+                believes_utterer_sees_gem, _ = get_most_likely(traces, weights)
 
-                println("       $(action.args[2].name) thinks $agent $(inferred_sees_gem ? "can" : "can not") see a gem.")
+                println("       $listener thinks $communicator $(believes_utterer_sees_gem ? "can" : "can not") see a gem.")
+
+                # If the listener believes the utterer can see a gem, start following
+                if believes_utterer_sees_gem
+                    following[Symbol(listener)] = Symbol(communicator)
+                    println("       $listener is following $communicator.")
+                else
+                    following[Symbol(listener)] = nothing
+                    println("       $listener is not following $communicator.")
+                end
+            else
+                # println("Step $t:")
+                # println("       $agent moves: $action")
             end
+        elseif solution.status == :at_target
+            println("Step $t:")
+            println("       $agent is already at the target position.")
         else
-            println("Step $t: Agent $agent couldn't find a valid move.")
+            println("Step $t:")
+            println("       $agent couldn't find a valid action.")
+            # If the agent can't find a valid action, stop following
+            following[agent] = nothing
         end
     end
     t += 1
