@@ -1,4 +1,4 @@
-(define (problem vision-5)
+(define (problem many-agent)
     (:domain vision)
     (:objects gem1 gem2 gem3 - gem
               robot1 robot2 robot3 robot4 - agent

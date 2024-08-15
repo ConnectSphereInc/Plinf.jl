@@ -16,8 +16,8 @@ global current_state
 global t
 
 PDDL.Arrays.register!()
-domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
-problem::Problem = load_problem(joinpath(@__DIR__, "problems", "problem-5.pddl"))
+domain = load_domain(joinpath(@__DIR__, "domains/domain-local-interaction.pddl"))
+problem::Problem = load_problem(joinpath(@__DIR__, "problems", "many-agent.pddl"))
 state = initstate(domain, problem)
 spec = Specification(problem)
 domain, state = PDDL.compiled(domain, state)
@@ -63,7 +63,7 @@ renderer = PDDLViz.GridworldRenderer(
 canvas = renderer(domain, state)
 
 # Make the output folder
-output_folder = "examples/vision/output"
+output_folder = "examples/vision/output/many-agent/"
 if !isdir(output_folder)
     mkdir(output_folder)
 end
@@ -85,7 +85,7 @@ planners = [
 following = Dict{Symbol, Union{Nothing, Symbol}}(agent => nothing for agent in agents)
 
 current_state = state
-full_plan = []
+all_actions = []
 
 t_max = 100  # Set a maximum number of timesteps
 t = 1
@@ -123,7 +123,7 @@ while !isempty(remaining_items) && t <= t_max
         if solution.status == :success && !isempty(solution.plan)
             action = first(solution.plan)
             current_state = solution.trajectory[end]
-            push!(full_plan, action)
+            push!(all_actions, action)
 
             if action.name == :pickup
                 item = action.args[2].name
@@ -183,5 +183,5 @@ else
 end
 
 # Animate the plan
-anim = anim_plan(renderer, domain, state, full_plan; format="gif", framerate=2, trail_length=10)
+anim = anim_plan(renderer, domain, state, all_actions; format="gif", framerate=2, trail_length=10)
 save(output_folder*"/plan.mp4", anim)
