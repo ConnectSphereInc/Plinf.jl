@@ -27,6 +27,7 @@
         :parameters (?a1 ?a2 - agent ?i - item)
         :precondition (and 
                 (visible ?a1 ?i)
+                (not (visible ?a2 ?i))
                 (not (= ?a1 ?a2))
                 (not (communicated ?a1 ?i))
         )

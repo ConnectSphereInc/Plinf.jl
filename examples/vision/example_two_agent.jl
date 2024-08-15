@@ -113,6 +113,14 @@ while !isempty(remaining_items) && t <= t_max
             action = first(solution.plan)
             current_state = solution.trajectory[end]
             push!(all_actions, action)
+
+            if action.name == :communicate
+                caller = agent
+                callee = action.args[2].name
+                found_item = action.args[3].name
+                println("Step $t:")
+                println("       $caller found $found_item and tells $callee.")
+            end
         end
     end
 
