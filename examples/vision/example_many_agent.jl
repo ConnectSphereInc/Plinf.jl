@@ -109,8 +109,7 @@ while !isempty(remaining_items) && t <= t_max
                 PDDL.Compound(:(==), [PDDL.Compound(:xloc, [PDDL.Const(agent)]), PDDL.Const(followed_pos[1])]),
                 PDDL.Compound(:(==), [PDDL.Compound(:yloc, [PDDL.Const(agent)]), PDDL.Const(followed_pos[2])])
             ])
-            a_star_planner = AStarPlanner(GoalManhattan(agent), save_search=true)
-            solution = a_star_planner(domain, current_state, goal)
+            solution = planners[i](domain, current_state, goal)
             
             # If A* fails to find a path, stop following
             if solution.status != :success
