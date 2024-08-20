@@ -1,7 +1,7 @@
 (define (domain vision-reward)
     (:requirements :fluents :adl :typing)
     (:types robot - agent
-            tier1_gem tier2_gem tier3_gem tier4_gem - gem
+            red blue yellow green - gem
             gem - item
             item agent - object
     )

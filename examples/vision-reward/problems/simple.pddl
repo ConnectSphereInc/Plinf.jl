@@ -1,20 +1,20 @@
 (define (problem two-agent)
     (:domain vision)
-    (:objects tier1_gem1 - tier1_gem
-              tier2_gem2 - tier2_gem
-              tier3_gem3 - tier3_gem
-              tier4_gem4 - tier4_gem
+    (:objects gem1 - red
+              gem2 - blue
+              gem3 - yellow
+              gem4 - green
               robot1 - agent
     )
     (:init
-        (= (xloc tier1_gem1) 2)
-        (= (yloc tier1_gem1) 1)
-        (= (xloc tier2_gem2) 1)
-        (= (yloc tier2_gem2) 2)
-        (= (xloc tier3_gem3) 3)
-        (= (yloc tier3_gem3) 2)
-        (= (xloc tier4_gem4) 2)
-        (= (yloc tier4_gem4) 3)
+        (= (xloc gem1) 2)
+        (= (yloc gem1) 1)
+        (= (xloc gem2) 1)
+        (= (yloc gem2) 2)
+        (= (xloc gem3) 3)
+        (= (yloc gem3) 2)
+        (= (xloc gem4) 2)
+        (= (yloc gem4) 3)
         (= (walls) 
             (transpose (bit-mat 
                 (bit-vec 1 0 1 )
@@ -23,6 +23,10 @@
         )
         (= (xloc robot1) 2)
         (= (yloc robot1) 2)
+        (visible robot1 gem1)
+        (visible robot1 gem2)
+        (visible robot1 gem3)
+        (visible robot1 gem4)
     )
-    (:goal (or (has robot1 tier1_gem1) (has robot1 tier2_gem2) (has robot1 tier3_gem3) (has robot1 tier4_gem4)))
+    (:goal (or (has robot1 gem1) (has robot1 gem2) (has robot1 gem3) (has robot1 gem4)))
 )

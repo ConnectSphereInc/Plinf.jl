@@ -17,6 +17,7 @@ using DotEnv
 using Random
 include("utils.jl")
 include("one_step_planner.jl")
+include("utterances.jl")
 
 global remaining_items
 global current_state
@@ -36,14 +37,7 @@ items = [obj.name for obj in PDDL.get_objects(domain, state, :gem)]
 agents = Symbol[obj.name for obj in PDDL.get_objects(domain, state, :agent)]
 problem_goal = PDDL.get_goal(problem)
 
-gridworld_only = true
-vibrant_colors = PDDLViz.colorschemes[:vibrant]
-gem_colors = Dict(
-    :tier1 => vibrant_colors[1],
-    :tier2 => vibrant_colors[2],
-    :tier3 => vibrant_colors[3],
-    :tier4 => vibrant_colors[4]
-)
+gridworld_only = false
 renderer = PDDLViz.GridworldRenderer(
     resolution = (600,1100),
     has_agent = false,
@@ -55,8 +49,29 @@ renderer = PDDLViz.GridworldRenderer(
                 color=:black, font=:bold
             )
         ),
-        :gem => (d, s, o) -> MultiGraphic(
-            GemGraphic(color = gem_colors[Symbol(split(string(o.name), "_")[1])]), # tier is in name of object
+        :red => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :red),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
+        :yellow => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :yellow),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
+        :blue => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :blue),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
+        :green => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :green),
             TextGraphic(
                 string(o.name)[end:end], 0.3, 0.2, 0.5,
                 color=:black, font=:bold
@@ -71,12 +86,10 @@ renderer = PDDLViz.GridworldRenderer(
     inventory_labels = ["$agent Inventory" for agent in agents],
     show_vision = !gridworld_only,
     vision_fns = [
-
         (d, s, o) -> s[Compound(:visible, [Const(agent), o])] for agent in agents
     ],
-    vision_types = [:object for agent in agents],
+    vision_types = [:item for agent in agents],
     vision_labels = ["$agent Vision" for agent in agents],
-    obj_type_z_order = [:gem, :agent],
 )
 canvas = renderer(domain, state)
 
@@ -84,8 +97,6 @@ canvas = renderer(domain, state)
 # output_folder = "examples/vision-reward/output/simple/"
 output_folder = joinpath(@__DIR__, "output", "simple")
 mkpath(output_folder)
-
-
 
 # Save the canvas to a file
 println("Saving initial state to file")
