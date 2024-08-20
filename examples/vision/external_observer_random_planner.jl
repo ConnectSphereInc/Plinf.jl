@@ -12,12 +12,11 @@ mutable struct TwoStagePlanner <: Planner
     verbose::Bool
     callback::Union{Nothing, Function}
     alternative_planner::Union{Nothing, Planner}
-    agent::Symbol
 
     TwoStagePlanner(;max_nodes::Int=typemax(Int), max_time::Float64=Inf,
-                  save_search::Bool=false, agent::Symbol=:nothing, alternative_planner=AStarPlanner(GoalManhattan(), save_search=true), save_search_order::Bool=save_search,
+                  save_search::Bool=false, alternative_planner=AStarPlanner(GoalManhattan(), save_search=true), save_search_order::Bool=save_search,
                   verbose::Bool=false, callback::Union{Nothing, Function}=verbose ? LoggerCallback() : nothing) =
-        new(max_nodes, max_time, save_search, save_search_order, verbose, callback, alternative_planner, agent)
+        new(max_nodes, max_time, save_search, save_search_order, verbose, callback, alternative_planner)
 end
 
 @auto_hash TwoStagePlanner
@@ -31,33 +30,58 @@ function (planner::TwoStagePlanner)(domain::Domain, state::State, goal::MinSteps
     solve(planner, domain, state, Specification(goal.terms))
 end
 
-"""
-Solve the TwoStagePlanner
-
-The first 
-
-"""
 function solve(planner::TwoStagePlanner, domain::Domain, state::State, spec::Specification)
-    @unpack save_search, agent, alternative_planner = planner
-    
-    items = extract_items_from_spec(spec)
 
-    if !any(item -> PDDL.satisfy(domain, state, pddl"(visible $agent $item)"), items)
-        spec_intermediate = create_visibility_spec(agent, items)
-        sol1 = search_for_visibility(planner, domain, state, spec_intermediate)
-        
-        sol2 = (sol1.status != :failure && !isnothing(alternative_planner)) ?
-               alternative_planner(domain, sol1.trajectory[end], spec) : 
-               NullSolution(:failure)
-        
-        sol = stack_solutions(sol1, sol2)
-    else
-        sol = alternative_planner(domain, state, spec)
+    # Extract the item from the first 'has' goal in the specification
+    @unpack save_search = planner
+
+    item = nothing
+    for goal in spec.terms
+        if goal isa Term && goal.name == :has && length(goal.args) == 1
+            item = goal.args[1]
+            break
+        end
+    end
+    if item === nothing
+        error("No 'has' goal found in specification")
     end
 
-    return save_search ? sol : 
-           sol.status == :failure ? NullSolution(sol.status) : 
-           PathSearchSolution(sol.status, sol.plan, sol.trajectory)
+    item_visible = PDDL.satisfy(domain, state, pddl"(visible ${item})")
+
+    if !item_visible
+        # Create the subgoal
+        subgoal = Compound(:visible, Term[item])
+        spec_intermediate = Specification(subgoal)
+        spec_final = spec
+        spec_intermediate = simplify_goal(spec_intermediate, domain, state)
+
+        node_id = hash(state)
+        node = PathNode(node_id, state, 0.0, LinkedNodeRef(node_id))
+
+        search_tree = Dict(node_id => node)
+        queue = [node_id]
+        search_order = UInt[]
+        sol1 = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
+                                0, search_tree, queue, search_order)
+        sol1 = search!(sol1, planner, domain, spec_intermediate, state)
+
+        if sol1.status != :failure && !isnothing(planner.alternative_planner)
+            sol2 = planner.alternative_planner(domain, sol1.trajectory[end], spec_final)
+        end
+
+        sol = stack_solutions(sol1, sol2)
+
+    else
+        sol = planner.alternative_planner(domain, state, spec)
+    end
+
+    if save_search
+        return sol
+    elseif sol.status == :failure
+        return NullSolution(sol.status)
+    else
+        return PathSearchSolution(sol.status, sol.plan, sol.trajectory)
+    end
 end
 
 # Add the Base.copy method
@@ -69,8 +93,7 @@ function Base.copy(planner::TwoStagePlanner)
         save_search_order = planner.save_search_order,
         verbose = planner.verbose,
         callback = planner.callback,
-        alternative_planner = isnothing(planner.alternative_planner) ? nothing : copy(planner.alternative_planner),
-        agent = planner.agent
+        alternative_planner = isnothing(planner.alternative_planner) ? nothing : copy(planner.alternative_planner)
     )
 end
 
@@ -80,13 +103,14 @@ function search!(sol::PathSearchSolution, planner::TwoStagePlanner,
     sol.expanded = 0
     queue, search_tree = sol.search_frontier, sol.search_tree
     visited = Set{Tuple{Int64,Int64}}()
-    initial_agent_pos = get_agent_pos(state, planner.agent)
+    initial_agent_pos = get_agent_pos(state)
     push!(visited, initial_agent_pos)
 
     while length(queue) > 0
         # Randomly select a state from the queue
         node_id = queue[rand(1:end)]
         node = search_tree[node_id]
+
         if is_goal(spec, domain, node.state, node.parent.action)
             sol.status = :success # Goal reached
         elseif sol.expanded >= planner.max_nodes
@@ -124,37 +148,30 @@ function expand!(
 ) where {S <: State}
     state = node.state
 
-    available_actions = [act for act in PDDL.available(domain, state) 
-                         if act.args[1].name == planner.agent]
+    available_actions = [act for act in PDDL.available(domain, state)]
     if isempty(available_actions)
         return  # Return if there is no direction to proceed
     end
-    # Check if the communicate action is available
-    communicate_action = findfirst(act -> act.name == :communicate, available_actions)
-    if communicate_action !== nothing
-        chosen_action = available_actions[communicate_action]
-    else
-        # Remove visited states from available actions as much as possible
-        unvisited_and_available_actions = []
-        for act in available_actions
-            next_state = PDDL.transition(domain, state, act, check=false)
-            next_agent_pos = get_agent_pos(next_state, planner.agent)
-            if !(next_agent_pos in visited)
-                push!(unvisited_and_available_actions, act)
-            end
-        end
 
-        if isempty(unvisited_and_available_actions)
-            unvisited_and_available_actions = available_actions
+    # Remove visited states from available actions as much as possible
+    unvisited_and_available_actions = []
+    for act in available_actions
+        next_state = PDDL.transition(domain, state, act, check=false)
+        next_agent_pos = get_agent_pos(next_state)
+        if !(next_agent_pos in visited)
+            push!(unvisited_and_available_actions, act)
         end
-
-        # Randomly select actions and transitions
-        chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     end
 
+    if isempty(unvisited_and_available_actions)
+        unvisited_and_available_actions = available_actions
+    end
+
+    # Randomly select actions and transitions
+    chosen_action = unvisited_and_available_actions[rand(1:length(unvisited_and_available_actions))]
     next_state = PDDL.transition(domain, state, chosen_action, check=false)
     next_id = hash(next_state)
-    next_agent_pos = get_agent_pos(next_state, planner.agent)
+    next_agent_pos = get_agent_pos(next_state)
 
     # Add new state to search tree and queue
     if !haskey(search_tree, next_id)

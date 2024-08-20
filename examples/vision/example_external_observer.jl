@@ -3,8 +3,8 @@ using SymbolicPlanners, Plinf
 using Gen, GenParticleFilters
 using PDDLViz, GLMakie
 
-include("utils.jl")
-include("random_planner.jl")
+include("external_observer_utils.jl")
+include("external_observer_random_planner.jl")
 
 # Register PDDL array theory
 println("Registering PDDL array theory")
@@ -12,9 +12,9 @@ PDDL.Arrays.register!()
 
 # Load domain and problem
 println("Loading domain")
-domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
+domain = load_domain(joinpath(@__DIR__, "domains/domain-external-observer.pddl"))
 println("Loading problem")
-problem = load_problem(joinpath(@__DIR__, "problems", "problem-4.pddl"))
+problem = load_problem(joinpath(@__DIR__, "problems", "external-observer.pddl"))
 
 # Initialize state and construct goal specification
 println("Initializing state")
@@ -36,14 +36,13 @@ renderer = PDDLViz.GridworldRenderer(
         HumanGraphic(color=:black)
     end,
     obj_renderers = Dict(
-        :carrot => (d, s, o) -> begin
-            visible = !s[Compound(:has, [o])]
-            CarrotGraphic(visible=visible)
-        end,
-        :onion => (d, s, o) -> begin
-            visible = !s[Compound(:has, [o])]
-            OnionGraphic(visible=visible)
-        end
+        :gem => (d, s, o) -> MultiGraphic(
+            GemGraphic(color = :yellow),
+            TextGraphic(
+                string(o.name)[end:end], 0.3, 0.2, 0.5,
+                color=:black, font=:bold
+            )
+        ),
     ),
     show_inventory = true,
     inventory_fns = [(d, s, o) -> s[Compound(:has, [o])]],
@@ -58,7 +57,7 @@ println("Visualizing initial state")
 canvas = renderer(domain, state)
 
 # Make the output folder
-output_folder = "examples/vision/output"
+output_folder = "examples/vision/output/external-observer/"
 if !isdir(output_folder)
     mkdir(output_folder)
 end
@@ -71,7 +70,7 @@ save(output_folder*"/initial_state.png", canvas)
 planner = TwoStagePlanner(save_search=true)
 
 # Specify possible goals
-goals = @pddl("(has carrot1)", "(has onion1)")
+goals = @pddl("(has gem1)", "(has gem2)")
 goal_count = length(goals)
 goal_idxs = collect(1:goal_count)
 goal_names = [write_pddl(g) for g in goals]
@@ -102,7 +101,7 @@ agent_config = AgentConfig(domain,  planner; goal_config = StaticGoalConfig(goal
 #--- Generate Trajectory ---#
 
 # Construct a trajectory with backtracking to perform inference on
-sol = AStarPlanner(GoalManhattan(), save_search=true)(domain, state, pddl"(has carrot1)")
+sol = AStarPlanner(GoalManhattan(), save_search=true)(domain, state, pddl"(has gem1)")
 plan = [collect(sol);]
 obs_traj::Vector{State} = PDDL.simulate(domain, state, plan)
 num_steps = length(obs_traj)

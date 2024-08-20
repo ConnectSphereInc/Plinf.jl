@@ -1,6 +1,6 @@
 (define (domain vision)
     (:requirements :fluents :adl :typing)
-    (:types carrot onion tomato - item - object)
+    (:types gem - item - object)
     (:predicates
         (has ?i - item)
         (offgrid ?i - item)
