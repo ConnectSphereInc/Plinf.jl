@@ -1,7 +1,6 @@
-(define (problem vision-2)
+(define (problem external-observer)
     (:domain vision)
     (:objects gem1 gem2 - gem
-              robot1 robot2 - agent
     )
     (:init
         (= (xloc gem1) 7)
@@ -21,10 +20,8 @@
                 (bit-vec 0 1 0 0 0 0 1 1 0 1)
                 (bit-vec 0 0 0 0 0 0 0 0 0 0)))
         )
-        (= (xloc robot1) 1)
-        (= (yloc robot1) 1)
-        (= (xloc robot2) 9)
-        (= (yloc robot2) 9)
+        (= (xpos) 1)
+        (= (ypos) 1)
     )
-    (:goal (and (offgrid gem1) (offgrid gem2))) ; all gems are off the grid (collected)
+    (:goal (has gem2))
 )
