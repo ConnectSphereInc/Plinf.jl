@@ -108,11 +108,20 @@ end
     Manually extract the color of a gem from an utterance using regex.
 """
 function gem_from_utterance(utterance::String)
+    # First, try to match full color names
     color_pattern = r"\b(red|blue|yellow|green)\b"
     match_result = match(color_pattern, lowercase(utterance))
     if match_result !== nothing
         return String(match_result.match)
     end
+    
+    # If no match, try to extract color from gem names like "blue_gem2"
+    gem_pattern = r"\b(red|blue|yellow|green)_gem\d*\b"
+    match_result = match(gem_pattern, lowercase(utterance))
+    if match_result !== nothing
+        return split(match_result.match, "_")[1]
+    end
+    
     return nothing
 end
 
@@ -162,3 +171,31 @@ function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=fals
     end
     return state
 end
+
+# =======  Example Inference ======= #
+
+# utterances = [
+#     "Found a blue gem for 3!",
+#     "This yellow gem gave me +1 reward.",
+#     "Picked up a red gem, +5!",
+#     "Found a green gem for -1!",
+# ]
+
+# pf_state = particle_filter(utterances, 100, infer_gem=false)
+# top_rewards = get_top_weighted_rewards(pf_state, 10)
+# println("Top 5 most likely reward estimates:")
+# for (i, (rewards, weight)) in enumerate(top_rewards)
+#     println("$i. Rewards: $rewards, Weight: $(round(weight, digits=3))")
+# end
+
+# gem_certainty = quantify_gem_certainty(top_rewards)
+# println("Gem certainty:")
+# println(gem_certainty)
+
+# gem_utilities = calculate_gem_utility(gem_certainty, risk_aversion = 0)
+# println("Gem Utilities:")
+# for (gem, info) in gem_utilities
+#     println("$gem: value = $(info["value"]), certainty = $(round(info["certainty"], digits=2)), utility = $(round(info["utility"], digits=2))")
+# end
+
+# ================================== #

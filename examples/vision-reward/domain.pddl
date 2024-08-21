@@ -10,6 +10,7 @@
         (offgrid ?i - item)
         (visible ?a - agent ?o - object)
         (communicated ?a - agent ?i)
+        (is-goal-item ?i - item)
 
     )
     (:functions
@@ -18,25 +19,17 @@
     )
         (:action pickup
         :parameters (?a - agent ?i - item)
-        :precondition (and (not (has ?a ?i)) (= (xloc ?a) (xloc ?i)) (= (yloc ?a) (yloc ?i)))
-        :effect (and (has ?a ?i) (offgrid ?i)
-                        (assign (xloc ?i) -10) (assign (yloc ?i) -10)
+        :precondition (and (not (has ?a ?i)) 
+                        (= (xloc ?a) (xloc ?i)) 
+                        (= (yloc ?a) (yloc ?i))
+                        (is-goal-item ?i))
+        :effect (and (has ?a ?i) 
+                        (offgrid ?i)
+                        (assign (xloc ?i) -10) 
+                        (assign (yloc ?i) -10)
                         (not (visible ?a ?i))
-                        (forall (?agent - agent) (not (visible ?agent ?i))))
-        )
-
-        (:action communicate
-        :parameters (?a1 ?a2 - agent ?i - item)
-        :precondition (and 
-            (visible ?a1 ?i)
-            (not (visible ?a2 ?i))
-            (not (= ?a1 ?a2))
-            (not (communicated ?a1 ?i))
-        )
-        :effect ( and
-                ; (visible ?a2 ?i)
-                (communicated ?a1 ?i)
-        )
+                        (forall (?agent - agent) (not (visible ?agent ?i)))
+                        (not (is-goal-item ?i)))
         )
     (:action up
         :parameters (?a - agent)

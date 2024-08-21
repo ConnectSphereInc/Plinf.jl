@@ -1,4 +1,4 @@
-(define (problem two-agent)
+(define (problem simple)
     (:domain vision)
     (:objects gem1 - red
               gem2 - blue
