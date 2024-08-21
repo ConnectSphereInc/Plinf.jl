@@ -1,7 +1,6 @@
 using DataStructures: OrderedDict
 using PDDLViz: RGBA, to_color, set_alpha
 using Base: @kwdef
-import SymbolicPlanners: compute, get_goal_terms
 
 "Gets the (x, y) position of the specified agent."
 function get_agent_pos(state::State, agent::Symbol)
@@ -13,369 +12,6 @@ end
 get_obj_loc(state::State, obj::Const) =
     (state[Compound(:xloc, Term[obj])], state[Compound(:yloc, Term[obj])])
 
-"""
-    GoalManhattan
-
-Custom relaxed distance heuristic to goal objects. Estimates the cost of 
-collecting all goal objects by computing the distance between all goal objects
-and the agent, then returning the minimum distance plus the number of remaining
-goals to satisfy.
-"""
-struct GoalManhattan <: Heuristic 
-    agent::Symbol
-end
-
-
-function compute(heuristic::GoalManhattan,
-                 domain::Domain, state::State, spec::Specification)
-    # Count number of remaining goals to satisfy
-    goal_count = GoalCountHeuristic()(domain, state, spec)
-    # Determine goal objects to collect
-    goals = get_goal_terms(spec)
-    goal_objs = [g.args[1] for g in goals if g.name == :has && !state[g]]
-    isempty(goal_objs) && return goal_count
-    # Compute minimum distance to goal objects
-    pos = get_agent_pos(state, heuristic.agent)
-    min_dist = minimum(goal_objs) do obj
-        loc = get_obj_loc(state, obj)
-        sum(abs.(pos .- loc))
-    end
-    return min_dist + goal_count
-end
-
-"""
-    RelaxedMazeDist([planner::Planner])
-
-Custom relaxed distance heuristic. Estimates the cost of achieving the goal 
-by removing all doors from the state, then computing the length of the plan 
-to achieve the goal in the relaxed state.
-
-A `planner` can specified to compute the relaxed plan. By default this is
-`AStarPlanner(heuristic=GoalManhattan())`.
-"""
-function RelaxedMazeDist()
-    planner = AStarPlanner(GoalManhattan())
-    return RelaxedMazeDist(planner)
-end
-
-function RelaxedMazeDist(planner::Planner)
-    heuristic = PlannerHeuristic(planner, s_transform=unlock_doors)
-    heuristic = memoized(heuristic)
-    return heuristic
-end
-
-"Unlocks all doors in the state."
-function unlock_doors(state::State)
-    state = copy(state)
-    for d in PDDL.get_objects(state, :door)
-        state[Compound(:locked, Term[d])] = false
-    end
-    return state
-end
-
-"""
-    VIPSGridworldCallback(renderer, domain; kwargs...)
-
-Convenience constructor for a combined callback that logs data and visualizes
-inference for a gridworld domain using the VIPS (Vision Enhanced Plan Search) algorithm.
-
-# Keyword Arguments
-
-- `goal_addr`: Trace address of goal variable.
-- `goal_names`: Names of goals.
-- `goal_colors`: Colors of goals.
-- `obs_trajectory`: Ground truth / observed trajectory.
-- `print_goal_probs`: Whether to print goal probabilities.
-- `render`: Whether to render the gridworld.
-- `plot_goal_bars`: Whether to plot goal probabilities as a bar chart.
-- `plot_goal_lines`: Whether to plot goal probabilities over time.
-- `record`: Whether to record the figure.
-- `sleep`: Time to sleep between frames.
-- `framerate`: Framerate of recorded video.
-- `format`: Format of recorded video.
-"""    
-function VIPSGridworldCallback(
-    renderer::GridworldRenderer,
-    domain::Domain;
-    goal_addr = :init => :agent => :goal => :goal,
-    goal_names = ["Goal $i" for i in 1:2],
-    goal_colors = [:orange, :magenta],
-    obs_trajectory = nothing,
-    print_goal_probs::Bool = true,
-    render::Bool = true,
-    plot_goal_bars::Bool = true,
-    plot_goal_lines::Bool = true,
-    record::Bool = false,
-    sleep::Real = 0.2,
-    framerate = 5,
-    format = "mp4",
-    inference_overlay = true
-)
-    callbacks = OrderedDict{Symbol, Any}()
-    n_goals = length(goal_names)
-    goal_support = 1:n_goals
-    
-    # Helper function to get goal probabilities
-    function get_goal_probs(t::Int, traces, log_weights)
-        if t == 0 || isempty(traces)
-            return fill(1.0 / n_goals, n_goals)  # Equal probabilities for initial state
-        end
-        probs = zeros(n_goals)
-        for (tr, lw) in zip(traces, log_weights)
-            goal = tr[goal_addr]
-            probs[goal] += exp(lw)
-        end
-        return probs ./ sum(probs)
-    end
-    
-    # Construct data logger callback
-    callbacks[:logger] = DataLoggerCallback(
-        t = (t, _, _) -> t::Int,
-        goal_probs = get_goal_probs,
-    )
-    
-    # Construct print callback
-    if print_goal_probs
-        callbacks[:print] = PrintStatsCallback(
-            (goal_addr, 1:n_goals);
-            header="t\t" * join(goal_names, "\t") * "\n"
-        )
-    end
-    
-    # Construct render callback
-    if render
-        figure = Figure(resolution=(600, 600))
-        if inference_overlay
-            function static_goal_color_fn(tr)
-                goal_idx = tr[goal_addr]
-                return goal_colors[goal_idx]
-            end
-            function dyn_goal_color_fn(tr)
-                addr = goal_addr(tr)
-                goal_spec = tr[addr]
-                goal_idx = findfirst(==(goal_spec), goal_support)
-                return goal_colors[goal_idx]
-            end
-            overlay = goal_addr isa Function ?
-                GridworldInferenceOverlay(trace_color_fn=dyn_goal_color_fn) :
-                GridworldInferenceOverlay(trace_color_fn=static_goal_color_fn)
-        end
-        callbacks[:render] = RenderCallback(
-            renderer, figure[1, 1], domain;
-            trajectory=obs_trajectory, trail_length=10,
-            overlay = inference_overlay ? overlay : nothing
-        )
-    end
-    
-    # Construct plotting callbacks
-    if plot_goal_bars || plot_goal_lines
-        if render
-            resize!(figure, 1200, 600)
-        else
-            figure = Figure(resolution=(600, 600))
-        end
-        side_layout = GridLayout(figure[1, 2])
-    end
-    
-    if plot_goal_bars
-        callbacks[:goal_bars] = BarPlotCallback(
-            side_layout[1, 1], get_goal_probs;
-            color = goal_colors,
-            axis = (xlabel="Goal", ylabel = "Probability",
-                    limits=(nothing, (0, 1)), 
-                    xticks=(1:n_goals, goal_names))
-        )
-    end
-    
-    if plot_goal_lines
-        callbacks[:goal_lines] = SeriesPlotCallback(
-            side_layout[2, 1],
-            callbacks[:logger], 
-            :goal_probs,
-            ps -> reduce(hcat, ps);
-            color = goal_colors, labels = goal_names,
-            axis = (xlabel="Time", ylabel = "Probability",
-                    limits=((1, nothing), (0, 1))),
-            legend_title = "Goals",
-            legend_args = (framevisible=false, position=:rt)
-        )
-    end
-    
-    # Construct recording callback
-    if record && (render || plot_goal_bars || plot_goal_lines)
-        callbacks[:record] = RecordCallback(figure, framerate=framerate,
-                                            format=format)
-    end
-    
-    # Display figure
-    if render || plot_goal_bars || plot_goal_lines
-        display(figure)
-    end
-    
-    # Combine all callback functions
-    callback = CombinedCallback(;sleep=sleep, callbacks...)
-    return callback
-end
-
-"""
-    GridworldInferenceOverlay(; kwargs...)
-
-Inference overlay renderer for the gridworld domain.
-
-# Keyword Arguments
-
-- `show_state = false`: Whether to show the current estimated state distribution.
-- `show_future_states = true`: Whether to show future predicted states.
-- `max_future_steps = 50`: Maximum number of future steps to render.
-- `trace_color_fn = tr -> :red`: Function to determine the color of a trace.
-"""
-@kwdef mutable struct GridworldInferenceOverlay
-    show_state::Bool = false
-    show_future_states::Bool = true
-    max_future_steps::Int = 50
-    trace_color_fn::Function = tr -> :red
-    color_obs::Vector = Observable[]
-    state_obs::Vector = Observable[]
-    future_obs::Vector = Observable[]
-end
-
-function (overlay::GridworldInferenceOverlay)(
-    canvas::Canvas, renderer::GridworldRenderer, domain::Domain,
-    t::Int, traces::Vector, log_weights::Vector
-)
-
-    # Render future states (skip t = 0 since plans are not yet available) 
-    if overlay.show_future_states && t > 0
-        for (i, (tr, lw)) in enumerate(zip(traces, log_weights))
-            try
-                belief_state = tr[:timestep => 1 => :obs] # in our implementation agent perfectly observes, meaning observation = belief
-                goal_state = tr[:init => :agent => :goal]
-                plan_state = tr[:timestep => 1 => :agent => :plan]
-
-                # Rollout planning solution until goal is reached
-                if @isdefined(belief_state) && @isdefined(goal_state) && @isdefined(plan_state)
-                    state = convert(State, belief_state)
-                    spec = convert(Specification, goal_state)
-                    sol = plan_state.sol
-                    future_states = Vector{typeof(state)}()
-                    for _ in 1:overlay.max_future_steps
-                        if sol isa NullSolution break end
-                        act = best_action(sol, state)
-                        if ismissing(act) break end
-                        state = transition(domain, state, act)
-                        push!(future_states, state)
-                        if is_goal(spec, domain, state) break end
-                    end
-                    if isempty(future_states)
-                        push!(future_states, state)
-                    end
-
-                    # Render or update future states
-                    color = overlay.trace_color_fn(tr)
-                    future_obs = get(overlay.future_obs, i, nothing)
-                    color_obs = get(overlay.color_obs, i, nothing)
-                    if isnothing(future_obs)
-                        future_obs = Observable(future_states)
-                        color_obs = Observable(to_color((color, exp(lw))))
-                        push!(overlay.future_obs, future_obs)
-                        push!(overlay.color_obs, color_obs)
-                        options = renderer.trajectory_options
-                        object_colors=fill(color_obs, length(options[:tracked_objects]))
-                        type_colors=fill(color_obs, length(options[:tracked_types]))
-                        render_trajectory!(
-                            canvas, renderer, domain, future_obs;
-                            track_markersize=0.5, agent_color=color_obs,
-                            object_colors=object_colors, type_colors=type_colors
-                        )
-                    else
-                        future_obs[] = future_states
-                        color_obs[] = to_color((color, exp(lw)))
-                    end
-                else
-                    println("Skipping future state rendering due to missing data")
-                end
-
-            catch e
-                println("Error processing trace $i:")
-                println(e)
-                println(stacktrace(catch_backtrace()))
-            end
-        end
-    end
-
-    # Render current state's agent location
-    if overlay.show_state
-        for (i, (tr, lw)) in enumerate(zip(traces, log_weights))
-            try
-                # Get current inferred environment state
-                env_state = t == 0 ? tr[:init => :obs] : tr[:timestep => t => :obs]
-                state = convert(State, env_state)
-
-                # Construct or update color observable
-                color = overlay.trace_color_fn(tr)
-                color_obs = get(overlay.color_obs, i, nothing)
-                if isnothing(color_obs)
-                    color_obs = Observable(to_color((color, exp(lw))))
-                else
-                    color_obs[] = to_color((color, exp(lw)))
-                end
-
-                # Render or update state
-                state_obs = get(overlay.state_obs, i, nothing)
-                if isnothing(state_obs)
-                    state_obs = Observable(state)
-                    push!(overlay.state_obs, state_obs)
-                    _trajectory = @lift [$state_obs]
-                    render_trajectory!(
-                        canvas, renderer, domain, _trajectory;
-                        agent_color=color_obs, track_markersize=0.6,
-                        track_stopmarker='▣' 
-                    ) 
-                else
-                    state_obs[] = state
-                end
-            catch e
-                println("Error processing state for trace $i:")
-                println(e)
-                println(stacktrace(catch_backtrace()))
-            end
-        end
-    end
-end
-
-"Adds a subplot to a storyboard with a line plot of goal probabilities."
-function storyboard_goal_lines!(
-    storyboard::Figure, goal_probs, ts=Int[];
-    goal_names = ["A", "B", "C"],
-    goal_colors = [:orange, :magenta, :blue],
-    show_legend = false
-)
-    n_rows, n_cols = size(storyboard.layout)
-    width, height = size(storyboard.scene)
-    # Add goal probability subplot
-    ax, _ = series(
-        storyboard[n_rows+1, 1:n_cols], goal_probs,
-        color = goal_colors, labels=goal_names,
-        axis = (xlabel="Time", ylabel = "Probability",
-                limits=((1, size(goal_probs, 2)), (0, 1)))
-    )
-    # Add legend to subplot
-    if show_legend
-        axislegend(ax, ax, "Goals", framevisible=false)
-    end
-    # Add vertical lines at timesteps
-    if !isempty(ts)
-        vlines!(ax, ts, color=:black, linestyle=:dash)
-        positions = [(t + 0.1, 0.85) for t in ts]
-        labels = ["t = $t" for t in ts]
-        text!(ax, positions; text=labels, color = :black, fontsize=14)
-    end
-    # Resize figure to fit new plot
-    rowsize!(storyboard.layout, n_rows+1, Auto(0.25))
-    resize!(storyboard, (width, height * 1.3))
-    return storyboard
-end
-
 function extract_items_from_spec(spec::Specification)
     goals = spec isa MinStepsGoal ? spec.terms : spec.terms
     goals = goals isa Vector && length(goals) == 1 ? goals[1] : goals
@@ -386,120 +22,82 @@ function extract_items_from_spec(spec::Specification)
             if subgoal isa Term && subgoal.name == :has && length(subgoal.args) == 2]
 end
 
-function create_visibility_spec(agent, items)
-    subgoals = [Compound(:visible, Term[Const(agent), Const(item)]) for item in items]
-    return Specification(Compound(:or, subgoals))
-end
+"""
+    get_top_weighted_rewards(state::ParticleFilterState, n::Int)
 
-function search_for_visibility(planner, domain, state, spec)
-    node = PathNode(hash(state), state, 0.0, LinkedNodeRef(hash(state)))
-    search_tree = Dict(node.id => node)
-    sol = PathSearchSolution(:in_progress, Term[], Vector{typeof(state)}(),
-                             0, search_tree, [node.id], UInt[])
-    search!(sol, planner, domain, simplify_goal(spec, domain, state), state)
-end
+    Get the top `n` most likely reward distributions based on the particle filter state.
 
-function get_offgrid_items(state)
-    return [item for item in items if !state[PDDL.parse_pddl("(offgrid $item)")]]
-end
-
-function create_plan(planner, domain, state, remaining_items, agent)
-    goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
-    goal = PDDL.parse_pddl(goal_str)
-    println("Created goal for agent $agent: $(write_pddl(goal))")
+"""
+function get_top_weighted_rewards(state::ParticleFilterState, n::Int)
+    traces = get_traces(state)
+    weights = get_norm_weights(state)
+    reward_weights = Dict()
     
-    try
-        sol = planner(domain, state, goal)
-        if sol isa NullSolution
-            println("Warning: Planner returned NullSolution for agent $agent")
-            return []  # Return an empty plan instead of NullSolution
-        end
-        return collect(sol)
-    catch e
-        println("Error in planning for agent $agent: $e")
-        return []  # Return an empty plan in case of error
-    end
-end
-
-"Print inferred probabilities for each instruction, given traces and weights."
-function print_probs(traces, weights)
-    probs = Dict{Bool, Float64}()
+    # Accumulate rewards and weights
     for (tr, w) in zip(traces, weights)
-        gem_visible = tr[:gem_visible]
-        p = get(probs, gem_visible, 0.0)
-        probs[gem_visible] = p + exp(w)
+        rewards = Dict{String, String}()
+        for gem in possible_gems
+            rewards[gem] = string(tr[:reward => Symbol(gem)])
+        end
+        rewards_tuple = Tuple(sort(collect(rewards)))
+        reward_weights[rewards_tuple] = get(reward_weights, rewards_tuple, 0.0) + w
     end
-    for (i, p) in probs
-        print("Gem Visible: ", i)
-        println()
-        println("Probability: ", round(p, digits=2))
-    end    
+    
+    total_weight = sum(values(reward_weights))
+    weighted_rewards = [(Dict(rewards), weight / total_weight) 
+                        for (rewards, weight) in reward_weights]
+    
+    # Sort by probability
+    sort!(weighted_rewards, by = x -> x[2], rev = true)
+    
+    # Return top n results
+    return weighted_rewards[1:min(n, length(weighted_rewards))]
 end
 
-function get_most_likely(traces, weights, verbose=false)
-    probs = Dict{Bool, Float64}()
-    for (tr, w) in zip(traces, weights)
-        gem_visible = tr[:gem_visible]
-        p = get(probs, gem_visible, 0.0)
-        probs[gem_visible] = p + exp(w)
-    end
-    
-    # Normalize probabilities
-    total = sum(values(probs))
-    for k in keys(probs)
-        probs[k] /= total
-    end
-    
-    # Find the most likely probability
-    most_likely = argmax(probs)
-    
-    # Print probabilities
-    if verbose
-        for (i, p) in probs
-            println("Gem Visible: $i")
-            println("Probability: $(round(p, digits=4))")
-        end
-    end
-    
-    return most_likely, probs[most_likely]
-end
-
-function get_most_likely_global(traces, weights, verbose=false)
-    probs = Dict{Tuple{Int, Int}, Float64}()
-    for (tr, w) in zip(traces, weights)
-        if tr[:partners_gem_visible]
-            x = tr[:gem_x_pos]
-            y = tr[:gem_y_pos]
-            pos = (x, y)
-            p = get(probs, pos, 0.0)
-            probs[pos] = p + exp(w)
-        else
-            pos = (0, 0)  # Represent "no gem visible" as (0, 0)
-            p = get(probs, pos, 0.0)
-            probs[pos] = p + exp(w)
-        end
-    end
-    
-    # Normalize probabilities
-    total = sum(values(probs))
-    for k in keys(probs)
-        probs[k] /= total
-    end
-    
-    # Find the most likely position
-    most_likely = argmax(probs)
-    
-    # Print probabilities
-    if verbose
-        for (pos, p) in sort(collect(probs), by=x->x[2], rev=true)
-            if pos == (0, 0)
-                println("Gem Not Visible")
-            else
-                println("Gem Position: $pos")
+function quantify_gem_certainty(weighted_rewards)
+    total_weight = sum(wr[2] for wr in weighted_rewards)
+    gem_values = Dict(gem => Dict() for gem in keys(weighted_rewards[1][1]))
+    for (rewards, weight) in weighted_rewards
+        for (gem, value) in rewards
+            value_float = parse(Float64, value)
+            if !haskey(gem_values[gem], value_float)
+                gem_values[gem][value_float] = 0.0
             end
-            println("Probability: $(round(p, digits=4))")
+            gem_values[gem][value_float] += weight
         end
     end
-    
-    return most_likely, probs[most_likely]
+    gem_certainty = Dict()
+    for (gem, values) in gem_values
+        probability, most_likely_value = findmax(values)
+        certainty = (probability / total_weight) * 100
+        gem_certainty[gem] = Dict(
+            "most_likely_value" => most_likely_value,
+            "certainty_percentage" => round(certainty, digits=1)
+        )
+    end
+    return gem_certainty
+end
+
+function calculate_gem_utility(gem_certainty; risk_aversion=0.5)
+    utilities = Dict()
+    for (gem, info) in gem_certainty
+        # Check if the value is already a number, if not, parse it
+        value = if isa(info["most_likely_value"], Number)
+            info["most_likely_value"]
+        else
+            parse(Float64, info["most_likely_value"])
+        end
+        certainty = info["certainty_percentage"] / 100
+        
+        # Calculate expected utility
+        # Higher risk_aversion puts more weight on certainty
+        utility = (1 - risk_aversion) * value + risk_aversion * certainty * value
+        
+        utilities[gem] = Dict(
+            "value" => value,
+            "certainty" => certainty,
+            "utility" => utility
+        )
+    end
+    return utilities
 end

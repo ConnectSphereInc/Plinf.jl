@@ -61,38 +61,6 @@ function construct_prompt(context::String, examples::Vector{Tuple{String, String
 end
 
 """
-    get_top_weighted_rewards(state::ParticleFilterState, n::Int)
-
-    Get the top `n` most likely reward distributions based on the particle filter state.
-
-"""
-function get_top_weighted_rewards(state::ParticleFilterState, n::Int)
-    traces = get_traces(state)
-    weights = get_norm_weights(state)
-    reward_weights = Dict()
-    
-    # Accumulate rewards and weights
-    for (tr, w) in zip(traces, weights)
-        rewards = Dict{String, String}()
-        for gem in possible_gems
-            rewards[gem] = string(tr[:reward => Symbol(gem)])
-        end
-        rewards_tuple = Tuple(sort(collect(rewards)))
-        reward_weights[rewards_tuple] = get(reward_weights, rewards_tuple, 0.0) + w
-    end
-    
-    total_weight = sum(values(reward_weights))
-    weighted_rewards = [(Dict(rewards), weight / total_weight) 
-                        for (rewards, weight) in reward_weights]
-    
-    # Sort by probability
-    sort!(weighted_rewards, by = x -> x[2], rev = true)
-    
-    # Return top n results
-    return weighted_rewards[1:min(n, length(weighted_rewards))]
-end
-
-"""
     utterance_model(T::Int)
 
     Generate a sequence of utterances based on simulated gem pickups and rewards.
@@ -107,14 +75,12 @@ end
     rewards for each gem.
 """
 @gen function utterance_model(T::Int)
-    global EXAMPLES_PICKUP, EXAMPLES_NO_PICKUP, possible_gems, possible_rewards    
-    
+    global EXAMPLES_PICKUP, EXAMPLES_NO_PICKUP, possible_gems, possible_rewards
     # What are the rewards for each gem?
     rewards::Dict{String, Int} = Dict()
     for gem in possible_gems
         rewards[gem] = {:reward => Symbol(gem)} ~ labeled_uniform(possible_rewards)
     end
-
     utterances = []
     for t = 1:T
         # Picked up a gem?
@@ -129,7 +95,6 @@ end
             gem = "none"
             prompt = construct_prompt("Gem: $gem\nReward: 0", EXAMPLES_NO_PICKUP)
         end
-
         # What was uttered?
         utterance = {t => :utterance} ~ gpt3(prompt)
         push!(utterances, String(strip(utterance)))
@@ -145,11 +110,9 @@ end
 function gem_from_utterance(utterance::String)
     color_pattern = r"\b(red|blue|yellow|green)\b"
     match_result = match(color_pattern, lowercase(utterance))
-    
     if match_result !== nothing
         return String(match_result.match)
     end
-
     return nothing
 end
 
@@ -161,11 +124,9 @@ end
 function reward_from_utterance(utterance::String)
     score_pattern = r"\b(-1|1|3|5)\b"
     match_result = match(score_pattern, utterance)
-    
     if match_result !== nothing
         return parse(Int, match_result.match)
     end
-
     return nothing
 end
 
@@ -180,21 +141,16 @@ end
 function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=false)
     n_obs = length(utterances)
     observations = []
-
     for (i, utterance) in enumerate(utterances)
-
         observation = Gen.choicemap()
         observation[i => :utterance => :output] = utterance
         observation[i => :gem_pickup] = true
-
         if !infer_gem
             gem = gem_from_utterance(utterance)
             observation[i => :gem] = gem
         end
-
         push!(observations, observation)
     end
-
     state = pf_initialize(utterance_model, (1,), observations[1], n_particles)
     for t=2:n_obs
         if effective_sample_size(state) < ess_thresh * n_particles
@@ -205,18 +161,4 @@ function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=fals
         pf_update!(state, (t,), (UnknownChange(),), observations[t])
     end
     return state
-end
-
-utterances = [
-    "Found a blue gem for 3!",
-    "This yellow gem gave me +1 reward.",
-    # "Picked up a red gem, +5!",
-]
-
-state = particle_filter(utterances, 100, infer_gem=false)
-
-top_rewards = get_top_weighted_rewards(state, 10)
-println("Top 5 most likely reward estimates:")
-for (i, (rewards, weight)) in enumerate(top_rewards)
-    println("$i. Rewards: $rewards, Weight: $(round(weight, digits=3))")
 end

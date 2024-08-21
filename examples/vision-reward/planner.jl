@@ -195,3 +195,32 @@ function Base.copy(planner::SingleStepVisionPlanner)
         recency_weight = planner.recency_weight
     )
 end
+
+"""
+    GoalManhattan
+
+Custom relaxed distance heuristic to goal objects. Estimates the cost of 
+collecting all goal objects by computing the distance between all goal objects
+and the agent, then returning the minimum distance plus the number of remaining
+goals to satisfy.
+"""
+struct GoalManhattan <: Heuristic 
+    agent::Symbol
+end
+
+function compute(heuristic::GoalManhattan,
+                 domain::Domain, state::State, spec::Specification)
+    # Count number of remaining goals to satisfy
+    goal_count = GoalCountHeuristic()(domain, state, spec)
+    # Determine goal objects to collect
+    goals = get_goal_terms(spec)
+    goal_objs = [g.args[1] for g in goals if g.name == :has && !state[g]]
+    isempty(goal_objs) && return goal_count
+    # Compute minimum distance to goal objects
+    pos = get_agent_pos(state, heuristic.agent)
+    min_dist = minimum(goal_objs) do obj
+        loc = get_obj_loc(state, obj)
+        sum(abs.(pos .- loc))
+    end
+    return min_dist + goal_count
+end

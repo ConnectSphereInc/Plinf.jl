@@ -1,27 +1,14 @@
-"""
-Two Agent Example
-
-In this example, there are two agents. 
-Each agent know their own coordinates in the gridworld.
-Additionally, they are able to communicate with the other agent.
-
-Each agent is after a gem with a specific color.
-They can only pick up their own gem.
-"""
-
 using PDDL, Printf
-using SymbolicPlanners, Plinf
 using Gen, GenParticleFilters
 using PDDLViz, GLMakie
 using DotEnv
 using Random
-include("utils.jl")
-include("one_step_planner.jl")
+import SymbolicPlanners: compute, get_goal_terms
+include("planner.jl")
 include("utterances.jl")
+include("utils.jl")
 
-global remaining_items
-global current_state
-global t
+global state, t, remaining_items
 
 overlay = DotEnv.config()
 api_key = get(overlay, "OPENAI_API_KEY", nothing)
@@ -30,11 +17,11 @@ ENV["OPENAI_API_KEY"] = api_key
 PDDL.Arrays.register!()
 domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
 problem::Problem = load_problem(joinpath(@__DIR__, "problems", "simple.pddl"))
-state = initstate(domain, problem)
+initial_state = initstate(domain, problem)
 spec = Specification(problem)
-domain, state = PDDL.compiled(domain, state)
-items = [obj.name for obj in PDDL.get_objects(domain, state, :gem)]
-agents = Symbol[obj.name for obj in PDDL.get_objects(domain, state, :agent)]
+domain, initial_state = PDDL.compiled(domain, initial_state)
+items = [obj.name for obj in PDDL.get_objects(domain, initial_state, :gem)]
+agents = Symbol[obj.name for obj in PDDL.get_objects(domain, initial_state, :agent)]
 problem_goal = PDDL.get_goal(problem)
 
 gridworld_only = false
@@ -91,10 +78,9 @@ renderer = PDDLViz.GridworldRenderer(
     vision_types = [:item for agent in agents],
     vision_labels = ["$agent Vision" for agent in agents],
 )
-canvas = renderer(domain, state)
+canvas = renderer(domain, initial_state)
 
 # Make the output folder
-# output_folder = "examples/vision-reward/output/simple/"
 output_folder = joinpath(@__DIR__, "output", "simple")
 mkpath(output_folder)
 
@@ -102,78 +88,83 @@ mkpath(output_folder)
 println("Saving initial state to file")
 save(output_folder*"/initial_state.png", canvas)
 
-# remaining_items = copy(items)
-# planners = [
-#     SingleStepVisionPlanner(
-#         agent = agent,
-#         alternative_planner = AStarPlanner(GoalManhattan(agent), save_search=true),
-#         save_search = true
-#     ) 
-#     for agent in agents
-# ]
-# goals = ["(has $agent gem$i)" for (i, agent) in enumerate(agents)]
-# current_state = state
-# all_actions = []
+remaining_items = copy(items)
+all_actions = []
+planners = [
+    SingleStepVisionPlanner(
+        agent = agent,
+        alternative_planner = AStarPlanner(GoalManhattan(agent), save_search=true),
+        save_search = true
+    ) 
+    for agent in agents
+]
 
-# t_max = 100  # Set a maximum number of timesteps
-# t = 1
+T=100
+t=1
 
-# while !isempty(remaining_items) && t <= t_max
-#     global remaining_items, current_state, t
+utterances = [
+    "Found a blue gem for 3!",
+    "This yellow gem gave me +1 reward.",
+    "Picked up a red gem, +5!",
+    "Found a green gem for -1!",
+]
 
-#     # iterate over over each agent
-#     for (i, agent) in enumerate(agents)
-#         goal = PDDL.parse_pddl(goals[i])
-#         solution = planners[i](domain, current_state, goal)
+pf_state = particle_filter(utterances, 100, infer_gem=false)
 
-#         if solution.status == :success
-#             action = first(solution.plan)
-#             current_state = solution.trajectory[end]
-#             push!(all_actions, action)
+top_rewards = get_top_weighted_rewards(pf_state, 10)
+println("Top 5 most likely reward estimates:")
+for (i, (rewards, weight)) in enumerate(top_rewards)
+    println("$i. Rewards: $rewards, Weight: $(round(weight, digits=3))")
+end
 
-#             if action.name == :communicate
-#                 caller = agent
-#                 callee = action.args[2].name
-#                 found_gem = action.args[3].name
-#                 gem_x_pos, gem_y_pos = get_agent_pos(current_state, found_gem)
-#                 println("Step $t:")
-#                 println("       $caller found $found_gem at ($gem_x_pos, $gem_y_pos) and tells $callee.")
+gem_certainty = quantify_gem_certainty(top_rewards)
+println("Gem certainty:")
+println(gem_certainty)
 
-#                 # Generate an utterance based on item visibility
-#                 constraints = Gen.choicemap()
-#                 constraints[:partners_gem_visible] = true
-#                 constraints[:gem_x_pos] = gem_x_pos
-#                 constraints[:gem_y_pos] = gem_y_pos
+gem_utilities = calculate_gem_utility(gem_certainty, risk_aversion = 0)
+println("Gem Utilities:")
+for (gem, info) in gem_utilities
+    println("$gem: value = $(info["value"]), certainty = $(round(info["certainty"], digits=2)), utility = $(round(info["utility"], digits=2))")
+end
 
-#                 (tr, _) = generate(utterance_model_global, (), constraints)
-#                 utterance = get_retval(tr)
-#                 println("       $caller utters: $utterance")
+function gem_to_name(gem)
+    if gem == "red"
+        return "gem1"
+    elseif gem == "blue"
+        return "gem2"
+    elseif gem == "yellow"
+        return "gem3"
+    elseif gem == "green"
+        return "gem4"
+    end
+end
 
-#                 # Listening agent infers if the agent can see a gem based on their utterance
-#                 traces, weights = enum_inference(utterance, 10, 10)  # Adjust grid size if needed
-#                 (gem_x_pos_belief, gem_y_pos_belief), _ = get_most_likely_global(traces, weights)
-#                 println("       $callee thinks the gem is at position ($gem_x_pos_belief, $gem_y_pos_belief).")
-                
-#                 # Update the planner's believed gem position for the listening agent
-#                 callee_index = findfirst(a -> a == Symbol(callee), agents)
-#                 planners[callee_index].believed_gem_position = (gem_x_pos_belief, gem_y_pos_belief)
-#             elseif action.name == :pickup
-#                 # If a pickup action is successful, reset the believed gem position
-#                 planners[i].believed_gem_position = nothing
-#             end
-#         else
-#             # If the planner fails (e.g., reaches believed position but no gem), reset the belief
-#             planners[i].believed_gem_position = nothing
-#         end
-#     end
+best_gem = gem_to_name(argmax(gem -> gem_utilities[gem]["utility"], keys(gem_utilities)))
+goals = [PDDL.parse_pddl("(has robot1 $best_gem)")]
 
-#     problem_solved = PDDL.satisfy(domain, current_state, problem_goal)
-#     if problem_solved
-#         break
-#     end
-#     t += 1
-# end
+state = initial_state
 
-# # Animate the plan
-# anim = anim_plan(renderer, domain, state, all_actions; format="gif", framerate=2, trail_length=10)
-# save(output_folder*"/plan.mp4", anim)
+while t <= T
+    global state, t, remaining_items
+    for (i, agent) in enumerate(agents)
+        goal = goals[i]
+        solution = planners[i](domain, state, goal)
+        action = first(solution.plan)
+        state = solution.trajectory[end]
+        push!(all_actions, action)
+        if action.name == :communicate
+            # todo: implement communication code
+        elseif action.name == :pickup
+            remaining_items = filter(item -> item != best_gem, remaining_items)
+        end
+    end
+    problem_solved = PDDL.satisfy(domain, state, goals[1])
+    if problem_solved
+        break
+    end
+    t += 1
+end
+
+# Animate the plan
+anim = anim_plan(renderer, domain, initial_state, all_actions; format="gif", framerate=2)
+save(output_folder*"/plan.mp4", anim)
