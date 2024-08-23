@@ -64,12 +64,10 @@ renderer = PDDLViz.GridworldRenderer(
 )
 canvas = renderer(domain, initial_state)
 
-# Make the output folder
 belief_mode = share_beliefs ? "shared" : "individual"
 output_folder = joinpath(@__DIR__, "output", problem_name * "_" * belief_mode)
 mkpath(output_folder)
 
-# Save the canvas to a file
 println("Saving initial state to file")
 save(output_folder*"/initial_state.png", canvas)
 
@@ -104,26 +102,22 @@ while !isempty(remaining_items) && t <= T
 
     for (i, agent) in enumerate(agents)
         visible_gems = [item for item in remaining_items if PDDL.satisfy(domain, state, PDDL.parse_pddl("(visible $agent $item)"))]
-        if isempty(visible_gems)
-            # If no gems visible, search randomly
+        if isempty(visible_gems) # If no gems visible, search randomly
             goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
         else # gem(s) are visible
             current_utilities = share_beliefs ? gem_utilities : gem_utilities[agent]
-            # Filter for gems with non-negative utility
-            positive_utility_gems = [
+            positive_utility_gems = [ # Filter for gems with non-negative utility
                 gem for gem in visible_gems 
                 if get(current_utilities, gem_from_utterance(String(gem)), Dict("utility" => 0.0))["utility"] >= 0
             ]
-            if !isempty(positive_utility_gems)
-                # Choose the gem with the highest utility
+            if !isempty(positive_utility_gems) # Choose the gem with the highest utility
                 best_gem = argmax(
                     gem -> current_utilities[gem_from_utterance(String(gem))]["utility"], 
                     positive_utility_gems
                 )
                 goal_str = "(has $agent $best_gem)"
                 PDDL.set_fluent!(state, true, pddl"(is-goal-item $best_gem)")
-            else
-                # If all visible gems have negative utility, search randomly
+            else # If all visible gems have negative utility, search randomly
                 other_gems = setdiff(remaining_items, visible_gems)
                 goal_str = "(or " * join(["(has $agent $item)" for item in other_gems], " ") * ")"
             end
@@ -131,7 +125,6 @@ while !isempty(remaining_items) && t <= T
 
         goal = PDDL.parse_pddl(goal_str)
         solution = planners[i](domain, state, goal)
-
         action = first(solution.plan)
         state = solution.trajectory[end]
         push!(all_actions, action)
@@ -141,7 +134,6 @@ while !isempty(remaining_items) && t <= T
             println("Step $t:")
             println("       $agent picked up $item.")
             remaining_items = filter(x -> x != item, remaining_items)
-
             gem = gem_from_utterance(String(item))
             num_gems_picked_up[agent] += 1
             total_gems_picked_up += 1
