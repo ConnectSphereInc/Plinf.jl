@@ -9,15 +9,26 @@ include("planner.jl")
 include("utterances.jl")
 include("utils.jl")
 
-global state, t, remaining_items
-
 overlay = DotEnv.config()
 api_key = get(overlay, "OPENAI_API_KEY", nothing)
 ENV["OPENAI_API_KEY"] = api_key
 
+# ======= Config ======= #
+
+share_beliefs::Bool = false
+ess_thresh::Float64 = 0.3
+num_particles::Int = 100
+ground_truth_rewards::Dict{String, Int} = Dict("red" => 5, "blue" => -1, "yellow" => 1, "green" => -1)
+gridworld_only = false
+T = 100
+
+# ====================== #
+
+global state, t, remaining_items
 PDDL.Arrays.register!()
 domain = load_domain(joinpath(@__DIR__, "domain.pddl"))
-problem::Problem = load_problem(joinpath(@__DIR__, "problems", "medium.pddl"))
+problem_name::String = "medium"
+problem::Problem = load_problem(joinpath(@__DIR__, "problems", problem_name*".pddl"))
 initial_state = initstate(domain, problem)
 spec = Specification(problem)
 domain, initial_state = PDDL.compiled(domain, initial_state)
@@ -25,46 +36,18 @@ items = [obj.name for obj in PDDL.get_objects(domain, initial_state, :gem)]
 agents = Symbol[obj.name for obj in PDDL.get_objects(domain, initial_state, :agent)]
 problem_goal = PDDL.get_goal(problem)
 
-gridworld_only = false
 renderer = PDDLViz.GridworldRenderer(
     resolution = (600,1100),
     has_agent = false,
-    obj_renderers = Dict(
-        :agent => (d, s, o) -> MultiGraphic(
-            RobotGraphic(color = :slategray),
+    obj_renderers = Dict{Symbol, Function}(
+        key => (d, s, o) -> MultiGraphic(
+            (key == :agent ? RobotGraphic : GemGraphic)(color = (key == :agent ? :slategray : key)),
             TextGraphic(
                 string(o.name)[end:end], 0.3, 0.2, 0.5,
-                color=:black, font=:bold
+                color = :black, font = :bold
             )
-        ),
-        :red => (d, s, o) -> MultiGraphic(
-            GemGraphic(color = :red),
-            TextGraphic(
-                string(o.name)[end:end], 0.3, 0.2, 0.5,
-                color=:black, font=:bold
-            )
-        ),
-        :yellow => (d, s, o) -> MultiGraphic(
-            GemGraphic(color = :yellow),
-            TextGraphic(
-                string(o.name)[end:end], 0.3, 0.2, 0.5,
-                color=:black, font=:bold
-            )
-        ),
-        :blue => (d, s, o) -> MultiGraphic(
-            GemGraphic(color = :blue),
-            TextGraphic(
-                string(o.name)[end:end], 0.3, 0.2, 0.5,
-                color=:black, font=:bold
-            )
-        ),
-        :green => (d, s, o) -> MultiGraphic(
-            GemGraphic(color = :green),
-            TextGraphic(
-                string(o.name)[end:end], 0.3, 0.2, 0.5,
-                color=:black, font=:bold
-            )
-        ),
+        )
+        for key in [:agent, :red, :yellow, :blue, :green]
     ),
     show_inventory = !gridworld_only,
     inventory_fns = [
@@ -82,7 +65,8 @@ renderer = PDDLViz.GridworldRenderer(
 canvas = renderer(domain, initial_state)
 
 # Make the output folder
-output_folder = joinpath(@__DIR__, "output", "simple")
+belief_mode = share_beliefs ? "shared" : "individual"
+output_folder = joinpath(@__DIR__, "output", problem_name * "_" * belief_mode)
 mkpath(output_folder)
 
 # Save the canvas to a file
@@ -100,51 +84,49 @@ planners = [
     for agent in agents
 ]
 
-T=100
-t=1
-
 state = initial_state
 
-ground_truth_rewards::Dict{String, Int} = Dict("red" => 5, "blue" => -1, "yellow" => 1, "green" => -1)
+# Initialize particle filter states and gem utilities based on share_beliefs
+if share_beliefs
+    global pf_states::Union{Nothing, ParticleFilterState{Gen.DynamicDSLTrace}} = nothing
+    global gem_utilities = Dict(gem => Dict("utility" => 0., "value" => 0.) for gem in ["red", "blue", "yellow", "green"])
+else
+    global pf_states = Dict{Symbol, Union{Nothing, ParticleFilterState{Gen.DynamicDSLTrace}}}(agent => nothing for agent in agents)
+    global gem_utilities = Dict(agent => Dict(gem => Dict("utility" => 0., "value" => 0.) for gem in ["red", "blue", "yellow", "green"]) for agent in agents)
+end
 
-global score = 0
-global num_gems_picked_up = 0
-global ess_thresh = 0.3
-global gem_utilities = Dict(gem => Dict("utility" => 0, "value" => 0) for gem in ["red", "blue", "yellow", "green"])
-num_particles = 100
+num_gems_picked_up::Dict{Symbol, Int} = Dict(agent => 0 for agent in agents)
+global total_gems_picked_up::Int = 0
+global combined_score::Int = 0
 
+t::Int = 1
 while !isempty(remaining_items) && t <= T
-    global state, t, remaining_items, score, num_gems_picked_up, ess_thresh, gem_utilities
+    global state, t, remaining_items, num_gems_picked_up, gem_utilities, combined_score, total_gems_picked_up, pf_states
+
     for (i, agent) in enumerate(agents)
         visible_gems = [item for item in remaining_items if PDDL.satisfy(domain, state, PDDL.parse_pddl("(visible $agent $item)"))]
         if isempty(visible_gems)
             # If no gems visible, search randomly
             goal_str = "(or " * join(["(has $agent $item)" for item in remaining_items], " ") * ")"
         else # gem(s) are visible
-            if num_gems_picked_up == 0 # no gems picked up yet
-                best_gem = visible_gems[1]
+            current_utilities = share_beliefs ? gem_utilities : gem_utilities[agent]
+            # Filter for gems with non-negative utility
+            positive_utility_gems = [
+                gem for gem in visible_gems 
+                if get(current_utilities, gem_from_utterance(String(gem)), Dict("utility" => 0.0))["utility"] >= 0
+            ]
+            if !isempty(positive_utility_gems)
+                # Choose the gem with the highest utility
+                best_gem = argmax(
+                    gem -> current_utilities[gem_from_utterance(String(gem))]["utility"], 
+                    positive_utility_gems
+                )
                 goal_str = "(has $agent $best_gem)"
                 PDDL.set_fluent!(state, true, pddl"(is-goal-item $best_gem)")
-            else # gem(s) previously picked up
-                # Filter for gems with non-negative utility
-                positive_utility_gems = [
-                    gem for gem in visible_gems 
-                    if get(gem_utilities, gem_from_utterance(String(gem)), Dict("value" => 0))["value"] >= 0
-                ]
-                
-                if !isempty(positive_utility_gems)
-                    # Choose the gem with the highest utility
-                    best_gem = argmax(
-                        gem -> gem_utilities[gem_from_utterance(String(gem))]["utility"], 
-                        positive_utility_gems
-                    )
-                    goal_str = "(has $agent $best_gem)"
-                    PDDL.set_fluent!(state, true, pddl"(is-goal-item $best_gem)")
-                else
-                    # If all visible gems have negative utility, search randomly
-                    other_gems = setdiff(remaining_items, visible_gems)
-                    goal_str = "(or " * join(["(has $agent $item)" for item in other_gems], " ") * ")"
-                end
+            else
+                # If all visible gems have negative utility, search randomly
+                other_gems = setdiff(remaining_items, visible_gems)
+                goal_str = "(or " * join(["(has $agent $item)" for item in other_gems], " ") * ")"
             end
         end
 
@@ -161,13 +143,15 @@ while !isempty(remaining_items) && t <= T
             println("       $agent picked up $item.")
             remaining_items = filter(x -> x != item, remaining_items)
 
-            # Create an utterance
             gem = gem_from_utterance(String(item))
-            num_gems_picked_up += 1
+            num_gems_picked_up[agent] += 1
+            total_gems_picked_up += 1
             reward = ground_truth_rewards[gem]
-            println("       $agent recieved $reward score.")
+            combined_score += reward
+            println("       $agent received $reward score.")
+            println("       Combined score is now $combined_score.")
 
-            observation::Gen.ChoiceMap = Gen.choicemap()
+            observation = Gen.choicemap()
             observation[(1 => :gem_pickup)] = true
             observation[(1 => :gem)] = gem
             observation[(:reward => Symbol(gem))] = reward
@@ -175,34 +159,61 @@ while !isempty(remaining_items) && t <= T
             utterance = Gen.get_retval(tr)[1]
             println("       $agent communicated: $utterance.")
             
-            # Broadcast and do inference (agents can share beliefs since they all hear everything)
-            alt_observation = Gen.choicemap()
-            alt_observation[num_gems_picked_up => :utterance => :output] = utterance
-            alt_observation[num_gems_picked_up => :gem_pickup] = true
-            alt_observation[num_gems_picked_up => :gem] = gem # todo: make this optional
+            alt_observation::Gen.ChoiceMap = Gen.choicemap()
+            gem_count::Int = share_beliefs ? total_gems_picked_up : num_gems_picked_up[agent]
+            alt_observation[gem_count => :utterance => :output] = utterance
+            alt_observation[gem_count => :gem_pickup] = true
+            alt_observation[gem_count => :gem] = gem
 
-            if num_gems_picked_up == 1
-                pf_state = pf_initialize(utterance_model, (1,), alt_observation, num_particles)
-            else
-                if effective_sample_size(pf_state) < ess_thresh * num_particles
-                    pf_resample!(pf_state, :stratified)
-                    rejuv_sel = select()
-                    pf_rejuvenate!(pf_state, mh, (rejuv_sel,))
+            # Update beliefs
+            if share_beliefs
+                if pf_states === nothing
+                    pf_states = pf_initialize(utterance_model, (gem_count,), alt_observation, num_particles)
+                else
+                    if effective_sample_size(pf_states) < ess_thresh * num_particles
+                        pf_resample!(pf_states, :stratified)
+                        rejuv_sel = select()
+                        pf_rejuvenate!(pf_states, mh, (rejuv_sel,))
+                    end
+                    pf_update!(pf_states, (total_gems_picked_up,), (UnknownChange(),), alt_observation)
                 end
-                pf_update!(pf_state, (num_gems_picked_up,), (UnknownChange(),), alt_observation)
+                current_pf_state = pf_states
+            else
+                if pf_states[agent] === nothing
+                    pf_states[agent] = pf_initialize(utterance_model, (gem_count,), alt_observation, num_particles)
+                else
+                    if effective_sample_size(pf_states[agent]) < ess_thresh * num_particles
+                        pf_resample!(pf_states[agent], :stratified)
+                        rejuv_sel = select()
+                        pf_rejuvenate!(pf_states[agent], mh, (rejuv_sel,))
+                    end
+                    pf_update!(pf_states[agent], (gem_count,), (UnknownChange(),), alt_observation)
+                end
+                current_pf_state = pf_states[agent]
             end
 
-            top_rewards = get_top_weighted_rewards(pf_state, 10)
+            # Calculate and update gem utilities
+            top_rewards = get_top_weighted_rewards(current_pf_state, 10)
             gem_certainty = quantify_gem_certainty(top_rewards)
-            gem_utilities = calculate_gem_utility(gem_certainty, risk_aversion = 0)
+            new_utilities = calculate_gem_utility(gem_certainty, risk_aversion = 0)
+            
+            # Update utilities for all agents if sharing beliefs, otherwise just for the current agent
+            if share_beliefs
+                gem_utilities = new_utilities
+            else
+                gem_utilities[agent] = new_utilities
+            end
+            
             println("       Estimated Rewards:")
-            for (gem, info) in gem_utilities
+            for (gem, info) in new_utilities
                 println("              $gem: value = $(info["value"]), certainty = $(round(info["certainty"], digits=2)), utility = $(round(info["utility"], digits=2))")
             end
         end
     end
     t += 1
 end
+
+println("\nFinal Score: $combined_score\n")
 
 # Animate the plan
 anim = anim_plan(renderer, domain, initial_state, all_actions; format="gif", framerate=2)
