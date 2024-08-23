@@ -101,3 +101,41 @@ function calculate_gem_utility(gem_certainty; risk_aversion=0.5)
     end
     return utilities
 end
+
+"""
+    gem_from_utterance(utterance::String)
+
+    Manually extract the color of a gem from an utterance using regex.
+"""
+function parse_gem(utterance::String)
+    # First, try to match full color names
+    color_pattern = r"\b(red|blue|yellow|green)\b"
+    match_result = match(color_pattern, lowercase(utterance))
+    if match_result !== nothing
+        return String(match_result.match)
+    end
+    
+    # If no match, try to extract color from gem names like "blue_gem2"
+    gem_pattern = r"\b(red|blue|yellow|green)_gem\d*\b"
+    match_result = match(gem_pattern, lowercase(utterance))
+    if match_result !== nothing
+        return split(match_result.match, "_")[1]
+    end
+    
+    return nothing
+end
+
+"""
+    parse_reward(utterance::String, gem::String)
+
+    Manually extract the reward from an utterance using regex.
+"""
+function parse_reward(utterance::String)
+    score_pattern = r"\b(-1|1|3|5)\b"
+    match_result = match(score_pattern, utterance)
+    if match_result !== nothing
+        return parse(Int, match_result.match)
+    end
+    return nothing
+end
+

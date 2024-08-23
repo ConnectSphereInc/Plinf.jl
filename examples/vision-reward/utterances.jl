@@ -1,12 +1,7 @@
 using Gen, GenGPT3
 using Random
-using DotEnv
 import Gen: ParticleFilterState
 import GenParticleFilters: pf_initialize, pf_update!, pf_resample!, pf_rejuvenate!, get_norm_weights, get_traces, effective_sample_size
-
-overlay = DotEnv.config()
-api_key = get(overlay, "OPENAI_API_KEY", nothing)
-ENV["OPENAI_API_KEY"] = api_key
 
 @dist labeled_uniform(labels) = labels[uniform_discrete(1, length(labels))]
 
@@ -102,77 +97,40 @@ end
     return utterances
 end
 
-"""
-    gem_from_utterance(utterance::String)
-
-    Manually extract the color of a gem from an utterance using regex.
-"""
-function parse_gem(utterance::String)
-    # First, try to match full color names
-    color_pattern = r"\b(red|blue|yellow|green)\b"
-    match_result = match(color_pattern, lowercase(utterance))
-    if match_result !== nothing
-        return String(match_result.match)
-    end
-    
-    # If no match, try to extract color from gem names like "blue_gem2"
-    gem_pattern = r"\b(red|blue|yellow|green)_gem\d*\b"
-    match_result = match(gem_pattern, lowercase(utterance))
-    if match_result !== nothing
-        return split(match_result.match, "_")[1]
-    end
-    
-    return nothing
-end
-
-"""
-    parse_reward(utterance::String, gem::String)
-
-    Manually extract the reward from an utterance using regex.
-"""
-function parse_reward(utterance::String)
-    score_pattern = r"\b(-1|1|3|5)\b"
-    match_result = match(score_pattern, utterance)
-    if match_result !== nothing
-        return parse(Int, match_result.match)
-    end
-    return nothing
-end
-
-"""
-    particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=false)
-
-    Perform particle filtering to infer the rewards for each gem based on a sequence of utterances.
-    
-    The agent observed a series of gem pickups and utterances and infers the rewards for each type
-    of gem. The agent can either infer the gem type from the utterance or observe the gem type directly.
-"""
-function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=false)
-    n_obs = length(utterances)
-    observations = []
-    for (i, utterance) in enumerate(utterances)
-        observation = Gen.choicemap()
-        observation[i => :utterance => :output] = utterance
-        observation[i => :gem_pickup] = true
-        if !infer_gem
-            gem = parse_gem(utterance)
-            observation[i => :gem] = gem
-        end
-        push!(observations, observation)
-    end
-    state = pf_initialize(utterance_model, (1,), observations[1], n_particles)
-    for t=2:n_obs
-        if effective_sample_size(state) < ess_thresh * n_particles
-            pf_resample!(state, :stratified)
-            rejuv_sel = select()
-            pf_rejuvenate!(state, mh, (rejuv_sel,))
-        end
-        pf_update!(state, (t,), (UnknownChange(),), observations[t])
-    end
-    return state
-end
-
 # =======  Example Inference ======= #
+
+# """
+#     particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=false)
+
+#     Perform particle filtering to infer the rewards for each gem based on a sequence of utterances.
+    
+#     The agent observed a series of gem pickups and utterances and infers the rewards for each type
+#     of gem. The agent can either infer the gem type from the utterance or observe the gem type directly.
+# """
+# function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=false)
+#     n_obs = length(utterances)
+#     observations = []
+#     for (i, utterance) in enumerate(utterances)
+#         observation = Gen.choicemap()
+#         observation[i => :utterance => :output] = utterance
+#         observation[i => :gem_pickup] = true
+#         if !infer_gem
+#             gem = parse_gem(utterance)
+#             observation[i => :gem] = gem
+#         end
+#         push!(observations, observation)
+#     end
+#     state = pf_initialize(utterance_model, (1,), observations[1], n_particles)
+#     for t=2:n_obs
+#         if effective_sample_size(state) < ess_thresh * n_particles
+#             pf_resample!(state, :stratified)
+#             rejuv_sel = select()
+#             pf_rejuvenate!(state, mh, (rejuv_sel,))
+#         end
+#         pf_update!(state, (t,), (UnknownChange(),), observations[t])
+#     end
+#     return state
+# end
 
 # utterances = [
 #     "Found a blue gem for 3!",
