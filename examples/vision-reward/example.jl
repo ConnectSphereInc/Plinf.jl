@@ -83,7 +83,6 @@ planners = [
     ) 
     for agent in agents
 ]
-
 state = initial_state
 
 # Initialize particle filter states and gem utilities based on share_beliefs
