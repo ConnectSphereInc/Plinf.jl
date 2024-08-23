@@ -107,7 +107,7 @@ end
 
     Manually extract the color of a gem from an utterance using regex.
 """
-function gem_from_utterance(utterance::String)
+function parse_gem(utterance::String)
     # First, try to match full color names
     color_pattern = r"\b(red|blue|yellow|green)\b"
     match_result = match(color_pattern, lowercase(utterance))
@@ -126,11 +126,11 @@ function gem_from_utterance(utterance::String)
 end
 
 """
-    reward_from_utterance(utterance::String, gem::String)
+    parse_reward(utterance::String, gem::String)
 
     Manually extract the reward from an utterance using regex.
 """
-function reward_from_utterance(utterance::String)
+function parse_reward(utterance::String)
     score_pattern = r"\b(-1|1|3|5)\b"
     match_result = match(score_pattern, utterance)
     if match_result !== nothing
@@ -155,7 +155,7 @@ function particle_filter(utterances, n_particles; ess_thresh=0.5, infer_gem=fals
         observation[i => :utterance => :output] = utterance
         observation[i => :gem_pickup] = true
         if !infer_gem
-            gem = gem_from_utterance(utterance)
+            gem = parse_gem(utterance)
             observation[i => :gem] = gem
         end
         push!(observations, observation)

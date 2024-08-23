@@ -108,11 +108,11 @@ while !isempty(remaining_items) && t <= T
             current_utilities = share_beliefs ? gem_utilities : gem_utilities[agent]
             positive_utility_gems = [ # Filter for gems with non-negative utility
                 gem for gem in visible_gems 
-                if get(current_utilities, gem_from_utterance(String(gem)), Dict("utility" => 0.0))["utility"] >= 0
+                if get(current_utilities, parse_gem(String(gem)), Dict("utility" => 0.0))["utility"] >= 0
             ]
             if !isempty(positive_utility_gems) # Choose the gem with the highest utility
                 best_gem = argmax(
-                    gem -> current_utilities[gem_from_utterance(String(gem))]["utility"], 
+                    gem -> current_utilities[parse_gem(String(gem))]["utility"], 
                     positive_utility_gems
                 )
                 goal_str = "(has $agent $best_gem)"
@@ -134,7 +134,7 @@ while !isempty(remaining_items) && t <= T
             println("Step $t:")
             println("       $agent picked up $item.")
             remaining_items = filter(x -> x != item, remaining_items)
-            gem = gem_from_utterance(String(item))
+            gem = parse_gem(String(item))
             num_gems_picked_up[agent] += 1
             total_gems_picked_up += 1
             reward = ground_truth_rewards[gem]
