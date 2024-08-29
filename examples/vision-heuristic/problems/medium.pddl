@@ -5,7 +5,7 @@
         blue_gem1 blue_gem2 - blue
         yellow_gem1 - yellow
         green_gem1 green_gem2 - green
-        robot1 - agent
+        robot1 robot2 - agent
     )
     (:init
         (= (xloc red_gem1) 6)
@@ -37,8 +37,8 @@
         )
         (= (xloc robot1) 1)
         (= (yloc robot1) 1)
-        ; (= (xloc robot2) 5)
-        ; (= (yloc robot2) 10)
+        (= (xloc robot2) 5)
+        (= (yloc robot2) 10)
     )
     (:goal (or (has robot1 yellow_gem1) (has robot1 yellow_gem1)))
 )
