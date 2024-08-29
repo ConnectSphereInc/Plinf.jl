@@ -152,3 +152,7 @@ function best_action(sol::TabularVPolicy, state::State, agent::Symbol)
     end
     return isempty(best_acts) ? missing : rand(best_acts)
 end
+
+function gem_to_color(gem::Symbol)
+    return Symbol(split(string(gem), "_")[1])
+end
