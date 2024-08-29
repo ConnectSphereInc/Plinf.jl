@@ -71,13 +71,14 @@ save(output_folder*"/initial_state.png", canvas)
 if share_beliefs # communicate
     global pf_states::Union{Nothing, ParticleFilterState{Gen.DynamicDSLTrace}} = nothing
     global gem_utilities = Dict(gem => 5.0 for gem in [:red, :blue, :yellow, :green])
+    heuristics = [VisionGemHeuristic(agent, gem_utilities) for agent in agents]
+
 else # don't communicate
     global pf_states = Dict{Symbol, Union{Nothing, ParticleFilterState{Gen.DynamicDSLTrace}}}(agent => nothing for agent in agents)
     global gem_utilities = Dict(agent => Dict(gem => 5.0 for gem in [:red, :blue, :yellow, :green]) for agent in agents)
+    heuristics = [VisionGemHeuristic(agent, gem_utilities[agent]) for agent in agents]
 end
 
-# todo: fix for shared
-heuristics = [VisionGemHeuristic(agent, gem_utilities) for agent in agents]
 planners = [RTHS(heuristic, n_iters=0, max_nodes=5) for heuristic in heuristics]
 
 global t = 1
@@ -163,7 +164,7 @@ while !isempty(remaining_items) && t <= T
                         rejuv_sel = select()
                         pf_rejuvenate!(pf_states[agent], mh, (rejuv_sel,))
                     end
-                    pf_update!(pf_states[agent], (gem_count,), (UnknownChange(),), alt_observation)
+                    pf_update!(pf_states[agent], (gem_count, possible_gems, possible_rewards), (UnknownChange(),), alt_observation)
                 end
                 current_pf_state = pf_states[agent]
             end
